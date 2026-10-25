@@ -32,9 +32,10 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
   side is tokenized independently, because the omitted source lines make whole-file tokenization
   impossible. If the primitives module is not exposed to this plugin, the pane degrades to plain text;
   the grid carries `data-spans="false"` when that happens.
-* **Two list modes** — `By turn` puts the recorded turns in a **horizontal strip** above the file list
-  (oldest first, numbered); picking one shows that turn's files and its diffs. `Overall` folds every
-  turn into one row per file with its counts summed across the Session. The choice is remembered.
+* **One file list, two comparisons** — the left list is always the Session's files deduplicated by path
+  with counts summed. `By turn` puts a **turn strip above the comparison**: every turn that touched the
+  selected file, oldest first, newest selected by default. `Overall` replaces that strip with the
+  baseline→current diff. The mode choice is remembered.
 * **Drag the divider** (or focus it and press ←/→, Shift for a bigger step) to resize the list. The
   width is remembered per browser.
 * **↵** toggles line wrapping. Unwrapped keeps a **fixed 50/50 split**: each lane is its own scroll
