@@ -9,6 +9,13 @@
 > 这样浏览器强刷就能看到，不用碰 Plugins 里那个开关）。根因在 `DiffPane` 未换行那条 `lane()`：
 > `data-kind` 写的是 `side`（`left`/`right`），而 CSS 只认 `del`/`add`/`pad`/`ctx`，于是所有规则都不匹配。
 > 改成用 `cell.kind`，并补了 `−`/`+` 号列、行号染色、2px 左侧色条，底色由 10% 提到 16%（带 `rgba` 回退）。
+>
+> **2026-10-26 02:20 v0.11.1「已删除」状态 + 配色回调**：
+> ① 底色回调到 12%（`rgba` 回退同步到 `.09`），并保留 2px 色条；
+> ② 新增 `.exists` 路由，Overall/By turn 列表把「盘上已不存在」的文件名加删除线 + 红色、计数淡显；
+> ③ 选中这类文件时「现在」一侧按空文本比，Overall 显示整份前像的删除，正文提示「已删除」，
+>    不再误报「无法从 Host 读取该文件」；
+> ④ payload 的 `before` 改由 `baseState.absent` 推导，Overall 现在也会显示「新文件」。
 
 ---
 
@@ -55,11 +62,16 @@
 | `GET /api/session-changes.list?sessionId` | 该 Session 所有 `workspace/changes` 汇总（前端列表） |
 | `GET /api/session-changes.file?sessionId&seq&path` | 文件**当前**内容（`node:fs`，上限 4MB） |
 | `GET /api/session-changes.base?sessionId&seq&path` | 文件的**首次改前原文**；新建返回 `{absent:true}`；未捕获 404 |
+| `GET /api/session-changes.exists?sessionId` | 列表里每个 path 现在还在不在盘上：`{paths:{path:"file"\|"other"\|"missing"\|"unknown"}}`（只 `stat`，最多 2000 条） |
 
 **客户端**（`lib/client.js`）：
 
 - `Overall`：`base`（或 absent→空）vs `wholeState.text`（当前文件）→ `diffLines` + `toHunks` → 交给渲染器。**这条路径是精确的，不会漂移。**
-- `Overall` 的 base 取不到（404）时：`comparison` 落到 `lib/client.js:1396` 的 `reverseHunks` 旧重建逻辑——这是**数据缺失的降级**，不是 bug。典型场景：文件在「Host 带上 capture 代码」之前就被本会话改过。
+- **文件已不在盘上**（`.file` 返回 `read-ENOENT` / `read-ENOTDIR` / `not-file`）：`wholeState` 进 `phase:"missing"`，
+  对比的「现在」一侧按空文本处理 → Overall 里整份前像显示为删除；payload 带 `after:false`，正文顶部出现「已删除」。
+  同时 `.exists` 的结果让左侧列表把该文件**名字加删除线、字变红**（`.dsc-row[data-missing=true]`）。
+  注意：记录器只知道文件工具干的事，shell `rm`/`git checkout` 删掉的文件只能靠这条 `.exists` 查出来。
+- `Overall` 的 base 取不到（404）时：`comparison` 落到 `lib/client.js` 的 `reverseHunks` 旧重建逻辑——这是**数据缺失的降级**，不是 bug。典型场景：文件在「Host 带上 capture 代码」之前就被本会话改过。
 - `By turn`：仍用 Host 的 per-turn hunk（`api/changes.diff`）。
 - `By turn + Full`：仍走旧的 `reverseHunks` 重建；重建失败会**降级为「当前文件 + 标注」**（`AnnotatedPane`）并显示提示，不再死路。
 
@@ -67,11 +79,11 @@
 
 ```
 plugins/dsh-session-changes/
-├─ package.json          # dsh.bundle.patch + dsh.client（version 0.11.0）
+├─ package.json          # dsh.bundle.patch + dsh.client（version 0.11.1）
 ├─ cordis.patch.yml      # insert: session-changes 行
 ├─ README.md             # 面向用户的功能说明
 ├─ HANDOVER.md           # 本文件
-├─ lib/index.js          # Host：三条路由 + 首次改动前备份 + 清理
+├─ lib/index.js          # Host：四条路由 + 首次改动前备份 + 清理
 ├─ lib/client.js         # 浏览器：列表、模式、布局、diff 渲染（约 1450 行）
 └─ profile/              # 快照：~/.dsh/profiles/desktop 的 cordis.patch.yml 与 package.json
 ```
