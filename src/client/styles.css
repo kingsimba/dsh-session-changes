@@ -260,13 +260,13 @@ body[data-ds-dark-theme] .dsc-turn {
   overflow-wrap: anywhere;
 }
 .dsc-cell[data-kind="del"] {
-  background: rgba(207, 34, 46, 0.09);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #cf222e) 12%, transparent);
+  background: rgba(207, 34, 46, 0.06);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #cf222e) 8%, transparent);
   box-shadow: inset 2px 0 0 var(--dsw-alias-state-error-primary, #cf222e);
 }
 .dsc-cell[data-kind="add"] {
-  background: rgba(45, 164, 78, 0.09);
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #2da44e) 12%, transparent);
+  background: rgba(45, 164, 78, 0.06);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #2da44e) 8%, transparent);
   box-shadow: inset 2px 0 0 var(--dsw-alias-state-success-primary, #2da44e);
 }
 .dsc-cell[data-kind="pad"] {
@@ -378,13 +378,13 @@ body[data-ds-dark-theme] .dsc-shead {
   height: 20px;
 }
 .dsc-lrow[data-kind="del"] {
-  background: rgba(207, 34, 46, 0.09);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #cf222e) 12%, transparent);
+  background: rgba(207, 34, 46, 0.06);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #cf222e) 8%, transparent);
   box-shadow: inset 2px 0 0 var(--dsw-alias-state-error-primary, #cf222e);
 }
 .dsc-lrow[data-kind="add"] {
-  background: rgba(45, 164, 78, 0.09);
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #2da44e) 12%, transparent);
+  background: rgba(45, 164, 78, 0.06);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #2da44e) 8%, transparent);
   box-shadow: inset 2px 0 0 var(--dsw-alias-state-success-primary, #2da44e);
 }
 .dsc-lrow[data-kind="pad"] {
@@ -484,13 +484,13 @@ body[data-ds-dark-theme] .dsc-shead {
   grid-template-columns: 3.2em 3.2em 1.2em minmax(0, 1fr);
 }
 .dsc-urow[data-kind="del"] {
-  background: rgba(207, 34, 46, 0.09);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #cf222e) 12%, transparent);
+  background: rgba(207, 34, 46, 0.06);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #cf222e) 8%, transparent);
   box-shadow: inset 2px 0 0 var(--dsw-alias-state-error-primary, #cf222e);
 }
 .dsc-urow[data-kind="add"] {
-  background: rgba(45, 164, 78, 0.09);
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #2da44e) 12%, transparent);
+  background: rgba(45, 164, 78, 0.06);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #2da44e) 8%, transparent);
   box-shadow: inset 2px 0 0 var(--dsw-alias-state-success-primary, #2da44e);
 }
 .dsc-urow[data-kind="del"] .dsc-uno,
