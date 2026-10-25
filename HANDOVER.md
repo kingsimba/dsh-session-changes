@@ -105,6 +105,9 @@ plugins/dsh-session-changes/
 **仍未人工确认的**：浏览器里 `Overall` + `Full` 是否真的行号连续、没有「无法还原该对比的起点」banner；
 以及 `Split`/`Inline`、`By turn` chip 联动的观感。这是当前唯一缺口。
 
+> 上表的 store 是**老会话**的目录，会话没 dispose 就会一直在 `.dsh/session-changes/` 下。
+> 新会话会生成新的 `session-<uuid>` 子目录，别拿老目录对照。
+
 ## 7. 怎么验（新会话照这个顺序跑）
 
 > 为什么强调「新会话」：capture 只对「Host 已带这段代码时发生的第一笔改动」生效。
