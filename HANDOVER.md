@@ -16,6 +16,13 @@
 > ③ 选中这类文件时「现在」一侧按空文本比，Overall 显示整份前像的删除，正文提示「已删除」，
 >    不再误报「无法从 Host 读取该文件」；
 > ④ payload 的 `before` 改由 `baseState.absent` 推导，Overall 现在也会显示「新文件」。
+>
+> **2026-10-26 02:35 修「文件过大」误报**：`diffLines` 原先在 `(n+1)*(m+1) > 1.5M` 时返回 `null`，
+> 整个面板只剩一句「File too large; changes cannot be shown.」。实测 `lib/client.js` 自己（1586→1616 行，
+> 中间 1391×1421 ≈ 1.98M 格）就中招。现在：① `DIFF_CELL_CAP` 提到 **8,000,000**（≈32MB 临时表，实测该文件 12.5ms、16 个 hunk）；
+> ② 超预算不再死路，改成「中间整块替换」（前缀/后缀仍是精确上下文）并返回 `coarse:true`，面板提示
+> 「改动范围过大，逐行对比已降级为整块替换显示」；③ 「过大」文案只留给真的 `kind:"oversized"`（核心 2 MiB/侧），
+> `.file` 的 413 `too-large` 也映射成同一条；④ 顺手修了 ops 为空（空文件）时 `sliceHunk(ops,0,0)` 越界崩的问题。
 
 ---
 
