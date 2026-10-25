@@ -42,12 +42,12 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
   surface and the two are kept in step (vertical and horizontal offsets), so a long line scrolls inside
   its own half instead of widening the pane or moving the divider. Wrapped turns the pane into one 50/50
   grid that wraps inside the cells.
-* **Full** switches the comparison to the **whole file**: the current text with the turn's added lines
-  highlighted in place and its deletions drawn where they were removed, tokenized once as a whole file.
-  The text comes from this package's own Host route (`api/session-changes.file`), which resolves the
-  file against the turn summary's working directory and reads it with `node:fs`. It therefore shows the
-  **current** content — if the file changed after that turn, the marks are positioned against the newer
-  text and may drift.
+* **Full / hunks** and **Split / Inline** are two independent axes:
+  * **Full** changes the *scope* — hunks only, or the whole file. It rebuilds the file's text on both
+    sides of the comparison (`reverseHunks` back through the newer turns), so the full view is a real
+    whole-file diff, not just the current text.
+  * **Split / Inline** changes the *layout* — two 50/50 lanes, or one column with both line numbers, a
+    sign, and the line. Either layout renders either scope.
 * **⤴** opens the selected file in its default application — VSCode, if that is what the extension is
   associated with. It opens the **live file on disk**, not the turn's snapshot, so you can edit it there.
 * **↗** opens the same file in the built-in **Review** tab, if you want the full-width view.
