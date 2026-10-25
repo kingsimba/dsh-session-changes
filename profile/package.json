@@ -1,0 +1,18 @@
+{
+  "name": "dsh-profile-desktop",
+  "private": true,
+  "dependencies": {
+    "dsh-session-changes": "link:C:/Users/kingsimba/Documents/deepseek-harness/default-workspace/plugins/dsh-session-changes",
+    "dsh-wsl-workspace": "^0.7.10"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "dsh-wsl-workspace",
+        "dsh-session-changes"
+      ]
+    }
+  }
+}
