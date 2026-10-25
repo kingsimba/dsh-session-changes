@@ -32,8 +32,9 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
   side is tokenized independently, because the omitted source lines make whole-file tokenization
   impossible. If the primitives module is not exposed to this plugin, the pane degrades to plain text;
   the grid carries `data-spans="false"` when that happens.
-* **Two list modes** — `By turn` groups the recorded turns; `Overall` folds every turn into one row per
-  file with its counts summed across the Session. The choice is remembered.
+* **Two list modes** — `By turn` lists the recorded turns **oldest first**, each with its files;
+  `Overall` folds every turn into one row per file with its counts summed across the Session. The choice
+  is remembered.
 * **Drag the divider** (or focus it and press ←/→, Shift for a bigger step) to resize the list. The
   width is remembered per browser.
 * **↵** toggles line wrapping. Unwrapped keeps a **fixed 50/50 split**: each lane is its own scroll
@@ -53,12 +54,19 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
 
 ## Overall mode
 
-`Overall` is an **aggregate of the Session's turns**, not a merged start→now diff:
+`Overall` answers *"what changed since this task started"*: selecting a file rebuilds the text it had
+**before the Session's first recorded turn**, and diffs that against the file as it stands now.
 
-* the list is one row per file, deduplicated by path, with `+added/−deleted` summed over every turn that
-  touched it;
-* selecting a file that one turn touched shows that comparison; for a file that several turns touched, a
-  row of `Turn N` chips appears above the comparison and switches between those turns' diffs.
+* the list is one row per file, deduplicated by path, with `+added/−deleted` summed over every turn;
+* the comparison is a **single** diff (baseline → current), not a set of per-turn diffs;
+* the baseline is rebuilt by walking the file backwards through every turn that touched it
+  (`reverseHunks`), checking each hunk against the text as it stood at that point;
+* if a hunk no longer lines up — the file was edited outside the recorded turns — the view says so
+  rather than showing a plausible-looking wrong diff;
+* a file created during the Session has an empty baseline, so it reads as entirely added.
+
+Limits: it needs every turn's comparison for that file still served by the Host (same process lifetime
+rule as the rest), and files whose middle changes are larger than the diff budget fall back to a note.
 
 A merged diff (Session start → now, per file) is not derivable from the public API: the Host serves only
 per-turn hunks (`api/changes.diff?seq&index`), never a file's text at the start of the Session, and the
