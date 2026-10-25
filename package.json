@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-changes",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "private": true,
   "description": "Always-available Session changes page for the DeepSeek Harness Web GUI: every file this Session changed, grouped by turn, with the selected file's side-by-side comparison beside the list.",
   "type": "module",
@@ -15,6 +15,15 @@
     "cordis.patch.yml",
     "README.md"
   ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:check": "node scripts/build.mjs --check",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --test --test-isolation=none test/*.test.mjs",
+    "test:isolated": "node --test test/",
+    "verify": "npm run format:check && npm run build:check && npm test"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -27,6 +36,13 @@
         "@deepseek-ai/dsh-client-ui-sidebar-right"
       ]
     }
+  },
+  "devDependencies": {
+    "prettier": "^3.3.0",
+    "rollup": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=22.8.0"
   },
   "license": "MIT"
 }

@@ -23,6 +23,14 @@
 > ② 超预算不再死路，改成「中间整块替换」（前缀/后缀仍是精确上下文）并返回 `coarse:true`，面板提示
 > 「改动范围过大，逐行对比已降级为整块替换显示」；③ 「过大」文案只留给真的 `kind:"oversized"`（核心 2 MiB/侧），
 > `.file` 的 413 `too-large` 也映射成同一条；④ 顺手修了 ops 为空（空文件）时 `sliceHunk(ops,0,0)` 越界崩的问题。
+>
+> **2026-10-26 02:00 v0.12.0 工程化（本次）**：`lib/client.js` 从 1631 行单文件拆成 `src/client/` 下 34 个小模块，
+> 用 **rollup** 打包回 `lib/client.js`（Host 只认这一个 classic script，格式没变：`__ModuleLoader__.load` + factory），
+> 全仓 **prettier** 统一格式（含 `lib/index.js`、`styles.css`），并加了 `npm` 脚本与测试。
+> **功能零改动**：用同一套 stub 把新旧 bundle 在 11 个场景（By turn/Overall × Split/Inline × Full、已删除、
+> 二进制、drift、空会话、列表失败）各渲染一遍，元素树逐字节相同；样式表按 CSS 语义比对也相同
+> （prettier 只做了 `.5px`→`0.5px`、`[a=b]`→`[a="b"]`、`content:''`→`content:""`、补分号这类等价改写）。
+> 详见 §10。
 
 ---
 
@@ -32,7 +40,7 @@
 
 - 代码：`C:\Users\kingsimba\Documents\deepseek-harness\default-workspace\plugins\dsh-session-changes`
 - 安装方式：Plugins → Add plugin → 粘贴上面的**绝对路径**；`~/.dsh/profiles/desktop/node_modules/dsh-session-changes` 是指向这里的 junction，所以**改代码立即生效**（刷新方式见 §5）
-- 版本：`0.11.0`，git 仓库就在插件目录里，tag 从 `v0.3.0` 到 `v0.11.0`
+- 版本：`0.12.0`，git 仓库就在插件目录里，tag 从 `v0.3.0` 到 `v0.12.0`
 
 ## 2. 现在能做什么
 
@@ -86,16 +94,72 @@
 
 ```
 plugins/dsh-session-changes/
-├─ package.json          # dsh.bundle.patch + dsh.client（version 0.11.1）
+├─ package.json          # dsh.bundle.patch + dsh.client + npm scripts（version 0.12.0）
 ├─ cordis.patch.yml      # insert: session-changes 行
-├─ README.md             # 面向用户的功能说明
+├─ README.md             # 面向用户的功能说明（含 Development 一节）
 ├─ HANDOVER.md           # 本文件
-├─ lib/index.js          # Host：四条路由 + 首次改动前备份 + 清理
-├─ lib/client.js         # 浏览器：列表、模式、布局、diff 渲染（约 1450 行）
+├─ .prettierrc.json      # 100 列 / 2 空格 / 双引号 / 分号
+├─ .prettierignore       # 跳过生成物 lib/client.js 与 *.md
+├─ scripts/build.mjs     # rollup：src/client → lib/client.js，带 --check
+├─ src/client/           # 浏览器端源码（拆分后的真身，见下）
+├─ lib/index.js          # Host：四条路由 + 首次改动前备份 + 清理（已格式化，无构建步骤）
+├─ lib/client.js         # 【生成物】rollup 打包结果，别手改
+├─ test/                 # harness + diff/bundle 测试（node --test）
 └─ profile/              # 快照：~/.dsh/profiles/desktop 的 cordis.patch.yml 与 package.json
 ```
 
-`lib/client.js` 里的重要函数（按出现顺序）：`groupFiles` / `groupOverall` → `reverseHunks` / `diffLines` / `sliceHunk` / `toHunks` → `readWholeFile` / `readBase` → `DiffPane`（Split）/ `UnifiedPane`（Inline）/ `AnnotatedPane`（降级）→ `ChangesTab`（状态与编排）。
+```
+src/client/
+├─ index.js               # apply / inject：注册 tab 类型、guide、字典、pane body
+├─ changes-tab.js         # 状态与编排（唯一持有页面级 useState 的组件）
+├─ hooks/
+│   ├─ use-changes-feed.js  # 列表 + 每轮 diff + 缓存 + 刷新计数（一次封装两个 effect）
+│   ├─ use-selection.js     # 选中项跟随列表重建（原 adopt 逻辑）
+│   ├─ use-whole-file.js    # .file，missing/oversized 归一成 phase
+│   ├─ use-base.js          # .base
+│   ├─ use-exists.js        # .exists → gonePaths
+│   ├─ use-comparison.js    # buildComparison 的 memo
+│   ├─ use-view.js          # buildView 的 memo
+│   └─ use-resizable.js     # 宽度、拖拽、键盘微调、ResizeObserver
+├─ components/
+│   ├─ list-pane.js         # 左栏：标题/统计/模式开关/状态
+│   ├─ list-rows.js         # 文件夹标题 + 文件行
+│   ├─ file-row.js          # 一行文件（含删除线状态）
+│   ├─ counts.js            # +N −M / binary / too large
+│   ├─ right-head.js        # 右栏工具条
+│   ├─ turn-chips.js        # Turn 1 · Turn 2 … 横条
+│   ├─ detail-pane.js       # 工具条 + chips + body
+│   ├─ detail-body.js       # 该显示 pane / note / annotated 的判定
+│   ├─ split-diff.js        # Split 布局（两条同步滚动的 lane / 换行网格）
+│   ├─ inline-diff.js       # Inline 布局（单栏）
+│   ├─ annotated.js         # 降级视图：当前文件 + 本轮改动标注
+│   ├─ diff-text.js         # 高亮文本单元格 + 网格双栏
+│   ├─ pane-note.js         # loading/error/binary/oversized 与顶部提示（两布局共用）
+│   ├─ error-boundary.js    # TabBoundary
+│   └─ tab-body.js          # 注册给 slot 的 body
+├─ diff/
+│   ├─ lines.js             # diffLines（LCS，超预算降级 coarse）
+│   ├─ hunks.js             # sliceHunk / toHunks / reverseHunks
+│   ├─ rows.js              # hunkRows / splitRows / hunkLabel
+│   ├─ highlight.js         # highlightedSide
+│   └─ model.js             # 按 ROW_CAP 截断 + 编号 + 成对 + 高亮的统一模型
+├─ locale/{en,zh,fallback}.js
+├─ api.js                 # 所有 fetch（list/diff/file/base/exists/open）
+├─ comparison.js          # 对比构建：Overall 走 .base，By turn 走 reverseHunks
+├─ grouping.js            # groupFiles / groupOverall
+├─ view.js                # buildView（含 total 汇总）
+├─ selection.js           # selectionOf / sameSelection / rowMatchesSelection / entryKey / activeEntryOf
+├─ storage.js             # localStorage 读写 + 各键默认值
+├─ primitives.js          # 共享高亮器（可选，加载失败即纯文本）
+├─ react.js               # Host 的 react + h()
+├─ loader.js              # 唯一出口：factory 的 require 参数
+├─ open-resource.js       # apply 装进去的资源打开器
+├─ styles.css             # 全部样式（原 css 字符串）
+└─ styles.js              # 一次性注入 <style data-plugin-css>
+```
+
+职责边界：`changes-tab.js` 只做编排与交互回调；每次读取一个 `hooks/*`；`components/*` 不读数据；
+`diff/*`、`comparison.js`、`grouping.js`、`view.js`、`selection.js` 都是纯函数，可在 Node 里直接测。
 
 **工作区里的测试夹具**：~~`diff-demo/`~~ —— **已于 2026-10-26 01:40 整目录删除**（用户要求清干净）。
 需要重现验收时自己建一份即可，要件清单见下面那条 01:35 的记录。
@@ -110,8 +174,9 @@ plugins/dsh-session-changes/
 
 ## 5. 改动怎么生效（很容易踩）
 
-- **只改 `lib/client.js`** → 浏览器强刷 `Ctrl+Shift+R`
+- **改浏览器端**（`src/client/**`）→ `npm run build` → 浏览器强刷 `Ctrl+Shift+R`
 - **改了 `lib/index.js` / `cordis.patch.yml` / `package.json`** → 必须让 Host 重新挂载：重启 DSH，或 Plugins 里把 bundle 关开一次
+- ⚠️ **`lib/client.js` 是生成物**：手改会被下次 build 覆盖，`npm run build:check` 也会报 stale。
 - ⚠️ **别用进程 PID / 启动时间判断「重启成功没有」**：实测点过重启之后，Electron 主进程的 `StartTime` 仍是旧的，但 Host 的 capture 已经开始工作（桌面壳疑似在原地重载 Host，或走了 `dsh-hmr`）。**唯一可靠的判据是：让 Agent 改一个文件，看 `<workspace>/.dsh/session-changes/` 有没有出现/更新。**
 - ⚠️ **不要拨插件列表里那个 row 开关**：它会往 `~/.dsh/profiles/desktop/cordis.patch.yml` 写
   `- id: session-changes` + `disabled: true`，再打开也不会清掉，结果就是「插件消失」。
@@ -152,7 +217,8 @@ plugins/dsh-session-changes/
 5. 新建一个文件 → 应有 `<name>.absent`（0 B）
 6. Changes → `Overall` → `Full`：应显示「会话开始 → 现在」的整文件对比，**行号连续**，且**不出现**「无法还原该对比的起点」
 7. 切 `Inline` / `Split` 各看一遍；点不同 turn chip，左侧列表应随之变化
-8. 静态检查：`node --check lib/index.js`、`node --check lib/client.js`
+8. 静态检查与单测：`npm run verify`（= prettier --check + `build.mjs --check` + `node --test test/`）。
+   没有 node_modules 时至少跑 `node --check lib/index.js`、`node --check lib/client.js`。
 9. Host 逻辑脱机自测（不需要跑 App，也不用登录）：
    - 用桩 `ctx` 加载 `lib/index.js`、调用 `mod.apply(ctx)`，桩要提供
      `connection.fetch.register` / `sessionQuery.listEvents` / `workspaceChanges.summary`
@@ -161,17 +227,74 @@ plugins/dsh-session-changes/
    - 现成脚本：`node .tmp/route-check.mjs`（在 `default-workspace` 下跑；里面的 `SESSION` 常量按需改）
    - §6 那 8 条就是这么验的，可直接复用
 
+> **在 DSH 自己的沙箱里**：`npm install` 会被拒（npm 的 lifecycle 要 spawn 子进程，报 `spawn EPERM`），
+> 但 `npm run build` / `format` / `test` / `verify` 都能正常跑。`npm test` 特意用了
+> `--test-isolation=none`（单进程），因为 `node --test` 默认给每个测试文件 spawn 一个子进程，在沙箱里同样 EPERM；
+> 想要并行隔离的那套（沙箱外）用 `npm run test:isolated`。实在没有 node_modules 时，退回
+> `node --check lib/index.js`、`node --check lib/client.js`。
+
 ## 8. 待办 / 已知缺口
 
 1. **只差浏览器端确认**：`Overall` 渲染（§6 表下那段）。其余数据链路已实测通过。
 2. `By turn + Full` 仍是逆向重建（因为按决定只存「首次改前」）。要精确需要**每轮**存一份（`<sid>/t<N>/…`），当时被否掉了。若以后想升级，改 `captureBefore` 的 key 加 turn，并在 `turn/start` 时记录 turn。
-3. 死代码/小债：`ChangesTab` 里旧的 `retry(key, entry)`（`lib/client.js:1072`）已无人调用；`WholeFilePane` 已被 `UnifiedPane` + `AnnotatedPane` 取代并删除；README 里有关 `Full` 的旧描述已更新，但可以再校对一遍。
+3. 死代码/小债：拆分时已清掉 `retry(key, entry)`（旧 `lib/client.js:1072`，无人调用）、`WholeFilePane`、以及
+   `DetailBody` 里永远不会命中的 `comparison.status === "coarse"` 分支（coarse 现在只经 payload 的
+   `data.coarse` 到 pane 顶部提示）。`useResizable` 里只写不读的 `dragRef` 也一并删了。
+   保留的一处「有意为之」：`retry` 以前只清缓存不重取，会把面板卡在 loading；现在 `retryEntry` 会顺带
+   bump nonce，等于重新拉一遍列表与对比。
 4. `.dsh/session-changes/` 会出现在工作区目录树里（由 `node:fs` 写入，不被记录器计入改动列表）。若以后工作区建 git 仓，务必加 `.gitignore`。
 5. 备份未做体积上限/二进制处理：超大文件会照样复制一份。需要的话加 `maxFileBytes` 并跳过二进制。
 6. `captureBefore` 里 `capturedPaths.add(rel)` 发生在读文件**之前**；若 `stat` 成功但目标不是文件（目录等），函数直接 `return`，rel 已被记为「已捕获」且本会话不再重试。异常路径（非 ENOENT）会 `captured.delete(rel)`，不受影响。正常只改文件的场景碰不到。
 
 ## 9. 约定
 
-- 每次改完：`node --check` → 能跑的最小验证 → `git add -A && git commit`，必要时打 tag（`v0.x.y`）
+- 每次改完：`npm run format` → `npm run verify` → `git add -A && git commit`，必要时打 tag（`v0.x.y`）
+  （在 DSH 沙箱里 npm 不可用时，见 §7 末尾的 node 直调写法）
+- **不要手改 `lib/client.js`**：改 `src/client/**` 后 `npm run build`；提交时把生成物一起提交
 - 提交信息用英文一句话；版本号在 `package.json`
 - 回滚：`git checkout <tag> -- .`；profile 回滚见 §5
+
+## 10. 这次工程化做了什么（v0.12.0）
+
+**拆分**：1631 行的 `lib/client.js` → `src/client/` 下 46 个文件（45 个 JS 模块 + 1 份 `styles.css`，见 §4），
+按「纯函数 / hooks / 展示组件 / 编排」分层。`changes-tab.js` 从 ~700 行降到 179 行，每个 `hooks/*`
+只负责一次读取或一段交互。
+
+**打包**：`scripts/build.mjs`（rollup，纯 JS，不依赖原生二进制）把 `src/client/index.js` 打成**与原文件同格式**的
+`lib/client.js`：
+
+```text
+window.__ModuleLoader__.load({ id, factory: (require) => { ... } })
+```
+
+- Host 只认这个格式，所以 rollup 用 `format: "iife"` + `name`，再由脚本套上 loader 外壳（HEADER/FOOTER）。
+- `require` 是 factory 的参数；`src/client/loader.js` 里直接写 `require(name)`，rollup 不会去解析它（不是 import），
+  运行时自然落到 factory 参数上。这样源码全是普通 ESM，不需要 define 插件。
+- `styles.css` 用一个小 rollup 插件当字符串内联，`styles.js` 在加载时注入一次 `<style data-plugin-css>`。
+- `node scripts/build.mjs --check` 只比对不写盘，用来防「改了源码忘打包」。
+
+**格式化**：prettier 3（`.prettierrc.json`：100 列 / 2 空格 / 双引号 / 分号 / LF），范围含 `lib/index.js`、
+`styles.css`、`scripts/`、`test/`；`lib/client.js` 与 `*.md` 在 `.prettierignore` 里。
+
+**测试**（`test/`，`node --test`）：
+
+- `test/support/harness.mjs`：在 Node 里装 `window`/`document`/`fetch` 和一个带依赖比较的 react 替代，加载
+  打包后的 `lib/client.js`，可 `render` / `settle`（按 deps 跑 effect，跟 React 一样）。
+- `test/bundle.test.mjs`：注册结果、By turn/Overall 渲染、已删除文件、空会话、列表失败、二进制 payload。
+- `test/diff.test.mjs`：`diffLines`（含 coarse 降级）、`toHunks`、`sliceHunk`、`reverseHunks`、`splitRows`、
+  `buildComparison` 的六种状态。
+- `test/host.test.mjs`：桩 `ctx` + 临时工作区，验四条路由（list 折叠、file 现读/ENOENT、base 的
+  原文/absent/not-captured/越界、exists 的 file/missing）。
+
+三个文件共 27 条断言，`npm test` 单进程跑完约 0.3s。
+
+**等价性证据**：`scripts/compare-bundles.mjs <旧 bundle>` 用同一套 stub 渲染 11 个场景（By turn / Overall ×
+Split / Inline × Full、已删除、二进制、drift、空会话、列表失败），元素树（tag + 可序列化 props + 文本）
+逐字节相同；样式表按语义归一化后相同（prettier 只做了 `.5px`→`0.5px`、`[a=b]`→`[a="b"]`、
+`content:''`→`content:""`、补分号这类等价改写）。打包产物 108,766 字符 / 109,400 字节
+（原 77,023 字节；差在 prettier 展开的 CSS 字符串与源码缩进/注释，非功能差异）。
+复跑：先把旧 bundle 取回来，再执行脚本。
+Git Bash / sh：`git show HEAD~1:lib/client.js > .baseline-client.js`；
+PowerShell 必须走 cmd，否则 `>` 会写成 UTF-16：`cmd /c "git show HEAD~1:lib/client.js > .baseline-client.js"`。
+（顺带发现：旧 `lib/client.js` 开头带一个 UTF-8 BOM，新产物没有——浏览器按 UTF-8 解码，无影响。）
+

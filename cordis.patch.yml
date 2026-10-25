@@ -3,4 +3,4 @@
 # `dsh.client` manifest (the client registry serves lib/client.js).
 - insert:
     - id: session-changes
-      name: 'dsh-session-changes'
+      name: "dsh-session-changes"

@@ -55,24 +55,22 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
 
 ## Overall mode
 
-`Overall` answers *"what changed since this task started"*: selecting a file rebuilds the text it had
-**before the Session's first recorded turn**, and diffs that against the file as it stands now.
+`Overall` answers *"what changed since this task started"*: selecting a file diffs the text it had
+**before the Session's first recorded turn** — the Host's own pre-image — against the file as it stands now.
 
 * the list is one row per file, deduplicated by path, with `+added/−deleted` summed over every turn;
-* the comparison is a **single** diff (baseline → current), not a set of per-turn diffs;
-* the baseline is rebuilt by walking the file backwards through every turn that touched it
-  (`reverseHunks`), checking each hunk against the text as it stood at that point;
-* if a hunk no longer lines up — the file was edited outside the recorded turns — the view says so
-  rather than showing a plausible-looking wrong diff;
-* a file created during the Session has an empty baseline, so it reads as entirely added.
+* the comparison is a **single** diff (pre-image → current), not a set of per-turn diffs;
+* the pre-image is the real file text the Host copied just before the Session's first write to that path,
+  so the diff cannot drift when the file is edited outside the recorded turns;
+* a file created during the Session has no pre-image (`absent`), so it reads as entirely added;
+* a file that is gone from the disk is compared against empty text, so it reads as entirely deleted, and
+  its name is struck through in the list;
+* only when a pre-image is missing (the file was changed before this Host build started capturing them)
+  does the view fall back to walking the file back through the turns, and then it says so rather than
+  showing a plausible-looking wrong diff.
 
-Limits: it needs every turn's comparison for that file still served by the Host (same process lifetime
-rule as the rest), and files whose middle changes are larger than the diff budget fall back to a note.
-
-A merged diff (Session start → now, per file) is not derivable from the public API: the Host serves only
-per-turn hunks (`api/changes.diff?seq&index`), never a file's text at the start of the Session, and the
-recorder's captured copies are private to `dsh-workspace-changes`. Producing one needs a host change — a
-route that diffs the earliest capture against the current file.
+`Full` in **By turn** still rebuilds the state just before the chosen turn with `reverseHunks`; when that
+walk no longer lines up, the pane annotates the current file and explains why, instead of dead-ending.
 
 ## Editing
 
@@ -106,19 +104,46 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
 
 ## What it reads
 
-* Host half: one authenticated GET route, `api/session-changes.list?sessionId=…`, which walks the
-  Session log for `workspace/changes` announcements and joins each sequence with the recorder's live
-  summary (`workspaceChanges.summary`). Newest turn first.
-* Browser half: a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body. Selecting a file
-  reads that comparison from the existing `api/changes.diff` route (the same one the built-in Review tab
-  uses) and caches it per tab; **↻** clears the cache and re-reads.
+* Host half (`lib/index.js`): four authenticated GET routes — `api/session-changes.list` (the turn list,
+  joined with the recorder's live summaries), `api/session-changes.file` (a file's current text),
+  `api/session-changes.base` (its first pre-image, or `{ absent: true }`) and `api/session-changes.exists`
+  (which listed paths are still on disk). It also copies that pre-image on the first
+  `fs/write-intent` / `fs/edit-intent` of each path.
+* Browser half (`src/client/`): a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body.
+  Per-turn comparisons come from the existing `api/changes.diff` route (the same one the built-in Review
+  tab uses) and are cached per tab; **↻** clears the cache and re-reads.
+
+## Development
+
+The shipped browser half is a **generated** file. Sources live in `src/client/`, and `npm run build`
+bundles them into `lib/client.js` — one classic script in the Host's `__ModuleLoader__` wrapper, which is
+what the sidebar actually loads.
+
+```
+npm install        # rollup + prettier
+npm run build      # src/client/** -> lib/client.js
+npm run format     # prettier --write .
+npm run verify     # format:check + build:check + tests
+```
+
+* `lib/client.js` is committed, because the plugin runs straight from this directory. Never edit it by
+  hand: `npm run build:check` fails when the committed bundle no longer matches the sources.
+* The Host half (`lib/index.js`) is plain Node ESM and needs no build step.
+* `npm test` renders the built bundle against a stubbed Host (`test/support/harness.mjs`), unit-tests the
+  diff core, and exercises the four Host routes against a throwaway workspace, so a refactor that changes
+  the markup or a route fails loudly. It runs in one process (`--test-isolation=none`) so it also works
+  inside DSH's own sandbox; `npm run test:isolated` uses the runner's usual per-file processes instead.
+* `node scripts/compare-bundles.mjs <old-client.js>` renders two builds side by side over eleven scenarios
+  and diffs the element trees — the check that proved the `src/client` split changed nothing.
+* Layout: `src/client/index.js` registers the tab; `changes-tab.js` holds state; `hooks/` owns every read;
+  `components/` is presentational; `diff/` is the pure diff engine.
 
 ## Updating a local install
 
-The installer links the profile to this directory (`link:…` in the profile's `package.json`), so edits
-here are live: change `lib/client.js`, then **Ctrl+R**. Only a change to the Host half (`lib/index.js`,
-`cordis.patch.yml`, `package.json`) needs the plugin re-composed — disable and re-enable it on its
-Plugins page.
+The installer links the profile to this directory (`link:…` in the profile's `package.json`), so edits here
+are live after a build: change `src/client/**`, run `npm run build`, then **Ctrl+R**. Only a change to the
+Host half (`lib/index.js`, `cordis.patch.yml`, `package.json`) needs the plugin re-composed — disable and
+re-enable it on its Plugins page.
 
 ## Known limits
 
