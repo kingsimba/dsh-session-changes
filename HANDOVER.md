@@ -4,6 +4,11 @@
 
 > **2026-10-26 01:25 更新**：0.11.0 的 Host 半边（首次改前备份 + `.base` 路由）已在**真实运行的 App**里跑通，
 > 不再是「只做过单元级验证」。浏览器端 `Overall` 的最终观感仍待人工确认（见 §6）。
+>
+> **2026-10-26 01:55 修 Split 视图没有红绿底色**（只动 `lib/client.js`，`package.json` 版本仍是 0.11.0，
+> 这样浏览器强刷就能看到，不用碰 Plugins 里那个开关）。根因在 `DiffPane` 未换行那条 `lane()`：
+> `data-kind` 写的是 `side`（`left`/`right`），而 CSS 只认 `del`/`add`/`pad`/`ctx`，于是所有规则都不匹配。
+> 改成用 `cell.kind`，并补了 `−`/`+` 号列、行号染色、2px 左侧色条，底色由 10% 提到 16%（带 `rgba` 回退）。
 
 ---
 
@@ -73,10 +78,16 @@ plugins/dsh-session-changes/
 
 `lib/client.js` 里的重要函数（按出现顺序）：`groupFiles` / `groupOverall` → `reverseHunks` / `diffLines` / `sliceHunk` / `toHunks` → `readWholeFile` / `readBase` → `DiffPane`（Split）/ `UnifiedPane`（Inline）/ `AnnotatedPane`（降级）→ `ChangesTab`（状态与编排）。
 
-**工作区里的测试夹具**（`default-workspace`，随时可整目录删）：`diff-demo/` 下
-`src/app.js`（有真实前像，最适合验 `Overall`）、`src/queue.js`（新文件 → `.absent` 分支）、
-`src/util.js`、`data/config.json`、`notes-zh.md`（中文/长行）、`changelog.txt`（36 行够滚动）、
-`README.md`；另有改过的 `base.js` 与 `.tmp/asar-*.mjs`。`diff-demo/` 是 0.11.0 那次测试留下的。
+**工作区里的测试夹具**：~~`diff-demo/`~~ —— **已于 2026-10-26 01:40 整目录删除**（用户要求清干净）。
+需要重现验收时自己建一份即可，要件清单见下面那条 01:35 的记录。
+工作区里另外还有改过的 `base.js` 与 `.tmp/asar-*.mjs`（与本次 demo 无关，未动）。
+
+> **2026-10-26 01:35 又改了一轮**（session `f94cc6b7…`），用来复查浏览器端观感，2 个 turn：
+> Turn 1 改 `src/app.js`（DEFAULTS/run/新增 `withTimeout`）、`src/util.js`（时长拆分 + `clamp`/`formatPercent`）、
+> `data/config.json`（0.2.0、加 archive job）、`notes-zh.md`（追加 2 段），新建 `src/batch.js`（→ `.absent`）；
+> Turn 2 再改 `src/app.js`（`describe()`）、追加 `changelog.txt` 4 行、修 `README.md` 的文件表。
+> 备份已验证：7 条记录，`app.js` 第二次改后 hash 不变、仍无 `withTimeout`。**这一轮的产物随后被删掉了**，
+> `.dsh/session-changes/<sid>/` 下只剩备份副本（指向已不存在的文件，无副作用，session 销毁时自清）。
 
 ## 5. 改动怎么生效（很容易踩）
 
