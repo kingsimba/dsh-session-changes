@@ -1,0 +1,6 @@
+# dsh-session-changes bundle patch: inserts the Host row that serves the
+# Session-wide changed-file index. The browser half rides the package's
+# `dsh.client` manifest (the client registry serves lib/client.js).
+- insert:
+    - id: session-changes
+      name: 'dsh-session-changes'
