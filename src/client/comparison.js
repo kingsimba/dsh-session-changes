@@ -1,12 +1,21 @@
 import { DIFF_CONTEXT } from "./constants.js";
-import { toHunks } from "./diff/hunks.js";
+import { sliceHunk, toHunks } from "./diff/hunks.js";
 import { diffLines } from "./diff/lines.js";
+
+/**
+ * One range covering the whole file; an empty diff has no range at all.
+ * @param ops - the operation list.
+ * @returns zero or one hunk.
+ */
+function wholeRange(ops) {
+  return ops.length === 0 ? [] : [sliceHunk(ops, 0, ops.length - 1)];
+}
 
 /**
  * Diff two texts into the `ready` comparison shape the panes consume.
  * @param before - the old side text.
  * @param after - the new side text.
- * @returns `{ status, hunks, coarse }`.
+ * @returns `{ status, hunks, full, coarse }`.
  */
 function compare(before, after) {
   const diff = diffLines(
@@ -17,6 +26,7 @@ function compare(before, after) {
     status: "ready",
     coarse: diff.coarse,
     hunks: toHunks(diff.ops, DIFF_CONTEXT),
+    full: wholeRange(diff.ops),
   };
 }
 

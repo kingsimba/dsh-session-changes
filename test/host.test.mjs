@@ -234,6 +234,26 @@ test("the file route refuses a binary file and reports a vanished one", async ()
   }
 });
 
+test("the open route refuses a path this Session never captured", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const { routes } = createContext({ cwd });
+    const route = routes.get("/api/session-changes.open");
+    assert.ok(route !== undefined, "the open route was not registered");
+    assert.deepEqual(route.methods, ["POST"]);
+    const response = await route.fetch(
+      new Request(`http://host/api/session-changes.open?sessionId=${sessionId}&path=nope.js`, {
+        method: "POST",
+      }),
+    );
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: "not-captured" });
+  } finally {
+    await dispose();
+  }
+});
+
 test("a Session with no captures lists nothing and refuses a pre-image", async () => {
   const { cwd, dispose } = await workspace();
   try {

@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-27 ui: restore the Full/hunks scope switch and the ⤴ open-in-default-application button; the
+  Host grows a POST `api/session-changes.open` that only opens a path this Session captured
 - 2026-10-27 store: the list now comes from the plugin's own pre-image store instead of the recorder's
   per-turn summaries — it survives a restart, gains a new file as soon as its pre-image is captured, and
   no longer depends on `workspaceChanges` / `session/event`

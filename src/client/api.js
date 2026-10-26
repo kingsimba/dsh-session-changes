@@ -1,4 +1,4 @@
-import { BASE_ROUTE, FILE_ROUTE, LIST_ROUTE, WATCH_ROUTE } from "./constants.js";
+import { BASE_ROUTE, FILE_ROUTE, LIST_ROUTE, OPEN_ROUTE, WATCH_ROUTE } from "./constants.js";
 
 /**
  * The query string of one route read.
@@ -117,6 +117,19 @@ export async function readWholeFile(sessionId, path, signal) {
   if (payload === null || typeof payload !== "object" || typeof payload.text !== "string")
     throw new Error("malformed");
   return payload.text;
+}
+
+/**
+ * Ask the Host desktop to open one captured file in its default application.
+ * @param sessionId - the viewed Session.
+ * @param path - the file's path as the list spells it.
+ */
+export async function requestOpen(sessionId, path) {
+  const response = await fetch(OPEN_ROUTE + query({ sessionId, path }), {
+    method: "POST",
+    credentials: "same-origin",
+  });
+  if (!response.ok) throw new Error(String(response.status));
 }
 
 /**

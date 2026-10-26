@@ -161,3 +161,41 @@ test("a binary file says so instead of drawing rows", async () => {
   assert.match(textOf(tree), /Binary file; changes cannot be shown/);
   assert.equal(withClass(tree, "dsc-lrow").length, 0);
 });
+
+/** A ten-line file whose fifth line changed, so hunks and the whole file differ. */
+const LONG = Array.from({ length: 10 }, (_value, at) => `line ${at}`).join("\n");
+const LONG_AFTER = LONG.replace("line 5", "LINE 5");
+
+/** A Host serving the long file, with its pre-image equal to the base text. */
+function longHost() {
+  return async (url) => {
+    const text = String(url);
+    if (text.includes("session-changes.list"))
+      return respond({ files: [{ path: "long.js", display: "long.js" }] });
+    if (text.includes("session-changes.base")) return respond({ text: LONG });
+    if (text.includes("session-changes.file")) return respond({ text: LONG_AFTER });
+    return refuse();
+  };
+}
+
+test("hunks are the default scope: the untouched head of the file is not drawn", async () => {
+  const harness = createHarness({ fetch: longHost() });
+  const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  assert.match(textOf(tree), /LINE 5/);
+  assert.doesNotMatch(textOf(tree), /line 0/);
+});
+
+test("Full draws the whole file, and the toggle is remembered", async () => {
+  const harness = createHarness({
+    fetch: longHost(),
+    storage: new Map([["dsh-session-changes.whole", "true"]]),
+  });
+  const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  assert.match(textOf(tree), /LINE 5/);
+  assert.match(textOf(tree), /line 0/);
+  assert.match(textOf(tree), /line 9/);
+  // The toolbar offers the scope switch back to hunks.
+  assert.match(textOf(tree), /Full/);
+});

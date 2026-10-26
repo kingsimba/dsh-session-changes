@@ -32,6 +32,9 @@ export const en = {
   layoutSplit: "Switch to the side-by-side layout",
   layoutInlineShort: "Inline",
   layoutSplitShort: "Split",
+  wholeShort: "Full",
+  wholeOn: "Show the whole file, marking the changes",
+  wholeOff: "Back to the changed hunks only",
   wholeError: "Could not read the file from the Host.",
   overallNoBase:
     "No pre-image was recorded for this file, so there is no baseline to compare against.",

@@ -2,11 +2,24 @@ import { h } from "../react.js";
 import { Counts } from "./counts.js";
 
 /**
- * The comparison toolbar: name, counts, and the layout / wrap buttons.
+ * The comparison toolbar: name, counts, and the layout / scope / open / wrap
+ * buttons.
  *
  * @param props - the selected file plus the actions the buttons run.
  */
-export function RightHead({ t, selected, layout, wrap, onToggleLayout, onToggleWrap }) {
+export function RightHead({
+  t,
+  selected,
+  layout,
+  whole,
+  wrap,
+  opening,
+  openFailed,
+  onToggleLayout,
+  onToggleWhole,
+  onOpenFile,
+  onToggleWrap,
+}) {
   return h("div", { className: "dsc-dhead", key: "h" }, [
     h(
       "span",
@@ -37,6 +50,37 @@ export function RightHead({ t, selected, layout, wrap, onToggleLayout, onToggleW
             onClick: onToggleLayout,
           },
           layout === "inline" ? t("layoutInlineShort") : t("layoutSplitShort"),
+        ),
+    selected === null
+      ? null
+      : h(
+          "button",
+          {
+            type: "button",
+            className: "dsc-btn",
+            key: "f",
+            title: whole === true ? t("wholeOff") : t("wholeOn"),
+            "aria-label": whole === true ? t("wholeOff") : t("wholeOn"),
+            "aria-pressed": whole === true ? "true" : "false",
+            "data-active": whole === true ? "true" : "false",
+            onClick: onToggleWhole,
+          },
+          t("wholeShort"),
+        ),
+    selected === null
+      ? null
+      : h(
+          "button",
+          {
+            type: "button",
+            className: "dsc-btn",
+            key: "e",
+            title: openFailed === true ? t("openAppFailed") : t("openApp"),
+            "aria-label": t("openApp"),
+            disabled: opening,
+            onClick: onOpenFile,
+          },
+          "⤴",
         ),
     selected === null
       ? null

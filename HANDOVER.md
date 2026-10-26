@@ -110,7 +110,7 @@ plugins/dsh-session-changes/
 ├─ .prettierignore       # 跳过生成物 lib/client.js 与 *.md
 ├─ scripts/build.mjs     # rollup：src/client → lib/client.js，带 --check
 ├─ src/client/           # 浏览器端源码（拆分后的真身，见下）
-├─ lib/index.js          # Host：四条路由 + 前像存储（list/file/base/watch，无 recorder 依赖，无构建步骤）
+├─ lib/index.js          # Host：五条路由（list/file/base/watch/open）+ 前像存储（无 recorder 依赖，无构建步骤）
 ├─ lib/client.js         # 【生成物】rollup 打包结果，别手改
 ├─ test/                 # harness + diff/bundle 测试（node --test）
 └─ profile/              # 快照：~/.dsh/profiles/desktop 的 cordis.patch.yml 与 package.json

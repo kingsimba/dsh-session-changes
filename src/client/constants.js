@@ -13,9 +13,13 @@ export const FILE_ROUTE = "api/session-changes.file";
 export const BASE_ROUTE = "api/session-changes.base";
 export const WATCH_ROUTE = "api/session-changes.watch";
 
-/** Persisted preferences: left pane width, wrap, layout. */
+/** Native open of a captured file, served by this package's Host half. */
+export const OPEN_ROUTE = "api/session-changes.open";
+
+/** Persisted preferences: left pane width, wrap, whole-file scope, layout. */
 export const WIDTH_KEY = "dsh-session-changes.left";
 export const WRAP_KEY = "dsh-session-changes.wrap";
+export const WHOLE_KEY = "dsh-session-changes.whole";
 export const LAYOUT_KEY = "dsh-session-changes.layout";
 
 /** Pane geometry bounds, in pixels. */

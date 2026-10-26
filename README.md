@@ -43,6 +43,8 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
   grid that wraps inside the cells.
 * **Split / Inline** changes the layout only — two 50/50 lanes, or one column with both line numbers, a
   sign, and the line.
+* **Full / hunks** changes the scope: hunks only, or the whole file with the changes marked. The choice is
+  remembered.
 * **⤴** opens the selected file in its default application — VSCode, if that is what the extension is
   associated with. It opens the **live file on disk**, so you can edit it there.
 * **↗** opens the same file in the built-in **Review** tab, if you want the full-width view.
@@ -109,11 +111,12 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
 * Host half (`lib/index.js`): the plugin's **own store** under `<workspace>/.dsh/session-changes/` is the
   only source. It copies a file's whole text just before the first `fs/write-intent` / `fs/edit-intent`
   that touches it (or writes an `.absent` marker for a path that did not exist yet), and serves four
-  authenticated GET routes: `api/session-changes.list` (the store's index — which files this Session's
+  authenticated routes: `api/session-changes.list` (the store's index — which files this Session's
   file tools touched), `api/session-changes.file` (a file's current text, refusing binary and oversized
-  ones), `api/session-changes.base` (its stored pre-image, or `{ absent: true }`) and
+  ones), `api/session-changes.base` (its stored pre-image, or `{ absent: true }`),
   `api/session-changes.watch` (a newline-delimited stream of `ready` / `file` / `added` / `ping` frames;
-  it observes the listed files through `fs.watch`). No per-turn summary is involved.
+  it observes the listed files through `fs.watch`) and `api/session-changes.open` (a POST that hands one
+  captured file to the desktop's default application). No per-turn summary is involved.
 * Browser half (`src/client/`): a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body.
   It fetches the list, reads one pre-image and one current text per row to number it, and diffs the
   selected file with its own diff engine; it never calls `api/changes.diff`.

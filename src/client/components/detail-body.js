@@ -8,7 +8,7 @@ import { SplitDiff } from "./split-diff.js";
  *
  * @param props - the current selection, the computed comparison and its sources.
  */
-export function DetailBody({ t, selected, layout, wrap, comparison, baseState }) {
+export function DetailBody({ t, selected, layout, whole, wrap, comparison, baseState }) {
   if (selected === null) return h("div", { className: "dsc-note" }, t("pick"));
 
   let note = null;
@@ -30,7 +30,7 @@ export function DetailBody({ t, selected, layout, wrap, comparison, baseState })
         before: baselineMissing !== true,
         after: comparison.gone !== true,
         coarse: comparison.coarse === true,
-        hunks: comparison.hunks,
+        hunks: whole === true ? comparison.full : comparison.hunks,
       },
     };
   }

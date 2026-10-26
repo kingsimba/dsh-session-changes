@@ -1,7 +1,7 @@
 import { DetailPane } from "./components/detail-pane.js";
 import { ListPane } from "./components/list-pane.js";
 import { buildListRows, buildRows } from "./components/list-rows.js";
-import { LAYOUT_KEY, WRAP_KEY } from "./constants.js";
+import { LAYOUT_KEY, WHOLE_KEY, WRAP_KEY } from "./constants.js";
 import { useAutoRefresh } from "./hooks/use-auto-refresh.js";
 import { useBase } from "./hooks/use-base.js";
 import { useComparison } from "./hooks/use-comparison.js";
@@ -12,7 +12,8 @@ import { useSelection } from "./hooks/use-selection.js";
 import { useWholeFile } from "./hooks/use-whole-file.js";
 import { fallback } from "./locale/fallback.js";
 import { h, react } from "./react.js";
-import { readLayout, readWrap, writeStored } from "./storage.js";
+import { readLayout, readWhole, readWrap, writeStored } from "./storage.js";
+import { requestOpen } from "./api.js";
 
 /**
  * Master list on the left, the selected file's comparison on the right, one
@@ -29,7 +30,10 @@ export function ChangesTab(props) {
 
   const [selectedPath, setSelectedPath] = react.useState(null);
   const [wrap, setWrap] = react.useState(readWrap);
+  const [whole, setWhole] = react.useState(readWhole);
   const [layout, setLayout] = react.useState(readLayout);
+  const [opening, setOpening] = react.useState(false);
+  const [openFailed, setOpenFailed] = react.useState(false);
 
   const { rootRef, left, dragging, startDrag, nudge } = useResizable();
   const list = useFileList({ sessionId, visible });
@@ -73,6 +77,23 @@ export function ChangesTab(props) {
     });
   };
 
+  const toggleWhole = () => {
+    setWhole((value) => {
+      writeStored(WHOLE_KEY, value === true ? "false" : "true");
+      return value !== true;
+    });
+  };
+
+  /** Ask the Host desktop to open the selected file in its default application. */
+  const openInApp = () => {
+    if (selectedPath === null || opening) return;
+    setOpening(true);
+    setOpenFailed(false);
+    requestOpen(sessionId, selectedPath)
+      .catch(() => setOpenFailed(true))
+      .finally(() => setOpening(false));
+  };
+
   const listRows = buildListRows({
     rows,
     selectedPath,
@@ -106,10 +127,15 @@ export function ChangesTab(props) {
       t,
       selected,
       layout,
+      whole,
       wrap,
+      opening,
+      openFailed,
       comparison,
       baseState,
       onToggleLayout: toggleLayout,
+      onToggleWhole: toggleWhole,
+      onOpenFile: openInApp,
       onToggleWrap: toggleWrap,
     }),
   ]);
