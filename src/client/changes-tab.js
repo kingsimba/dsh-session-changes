@@ -3,9 +3,11 @@ import { ListPane } from "./components/list-pane.js";
 import { buildListRows } from "./components/list-rows.js";
 import { LAYOUT_KEY, MODE_KEY, REVIEW_PREFIX, WHOLE_KEY, WRAP_KEY } from "./constants.js";
 import { useBase } from "./hooks/use-base.js";
+import { useAutoRefresh } from "./hooks/use-auto-refresh.js";
 import { useChangesFeed } from "./hooks/use-changes-feed.js";
 import { useComparison } from "./hooks/use-comparison.js";
 import { useExists } from "./hooks/use-exists.js";
+import { useOverallCounts } from "./hooks/use-overall-counts.js";
 import { useResizable } from "./hooks/use-resizable.js";
 import { useSelection } from "./hooks/use-selection.js";
 import { useView } from "./hooks/use-view.js";
@@ -16,6 +18,58 @@ import { h, react } from "./react.js";
 import { requestOpen } from "./api.js";
 import { activeEntryOf, entryKey } from "./selection.js";
 import { readLayout, readMode, readWhole, readWrap, writeStored } from "./storage.js";
+
+/**
+ * Recompute the view's session totals from the rows as they are shown, using the
+ * live Overall counts where they exist and the recorded ones everywhere else.
+ *
+ * @param view - the current view.
+ * @param counts - `{ [path]: { added, deleted } }`.
+ * @returns a view with the same groups and new totals.
+ */
+function totalsWith(view, counts) {
+  let added = 0;
+  let deleted = 0;
+  for (const group of view.groups) {
+    for (const folder of group.folders) {
+      for (const row of folder.files) {
+        const live = counts[row.file.path];
+        added += live === undefined ? row.file.added : live.added;
+        deleted += live === undefined ? row.file.deleted : live.deleted;
+      }
+    }
+  }
+  return { ...view, added, deleted };
+}
+
+/**
+ * Drop the rows Overall no longer has anything to show for: a file edited back to
+ * its pre-image nets zero, so it is not "changed since this task started" and must
+ * not linger as `+0 −0`. Rows the roll-up could not price keep their recorded counts
+ * and stay. A folder left with no rows goes with them.
+ *
+ * @param view - the current view.
+ * @param counts - `{ [path]: { added, deleted } }`.
+ * @returns a view with the unchanged rows filtered out.
+ */
+function withoutUnchanged(view, counts) {
+  const groups = [];
+  let files = 0;
+  for (const group of view.groups) {
+    const folders = [];
+    for (const folder of group.folders) {
+      const kept = folder.files.filter((row) => {
+        const live = counts[row.file.path];
+        return live === undefined || live.added > 0 || live.deleted > 0;
+      });
+      if (kept.length === 0) continue;
+      files += kept.length;
+      folders.push({ ...folder, files: kept });
+    }
+    groups.push({ ...group, folders });
+  }
+  return { ...view, groups, files, total: files };
+}
 
 /**
  * Master list on the left, the selected file's comparison on the right, one
@@ -42,8 +96,33 @@ export function ChangesTab(props) {
 
   const { rootRef, left, dragging, startDrag, nudge } = useResizable();
   const feed = useChangesFeed({ sessionId, visible, selected });
+
+  /**
+   * Re-read everything the pane shows: the turn list and the per-turn hunks
+   * (`feed.nonce`), plus the whole-file and pre-image sides of the comparison
+   * (`wholeNonce`). The whole-file side is a separate read because `Full` and
+   * `Overall` compare against text read from the disk, not against a hunk.
+   */
+  const refreshAll = () => {
+    feed.refresh();
+    setWholeNonce((value) => value + 1);
+  };
+
+  // The Host streams each invalidation; a 1s quiet period folds a save burst into
+  // one re-read of the list and the open comparison.
+  useAutoRefresh({ sessionId, visible, refresh: refreshAll });
   const view = useView({ turns: feed.state.turns, mode, turnFilter });
-  useSelection({ view, mode, selected, setSelected, setEntryIndex });
+  // Overall's rows must number the same pre-image → current text the pane diffs.
+  const liveCounts = useOverallCounts({
+    sessionId,
+    mode,
+    turns: feed.state.turns,
+    nonce: feed.nonce,
+  });
+  // A file edited back to its pre-image nets zero: Overall is not showing it any
+  // more, so its row and its folder leave the list instead of reading `+0 −0`.
+  const listView = liveCounts === null ? view : withoutUnchanged(view, liveCounts);
+  useSelection({ view: listView, mode, selected, setSelected, setEntryIndex });
   const wholeState = useWholeFile({
     sessionId,
     whole,
@@ -130,28 +209,33 @@ export function ChangesTab(props) {
   };
 
   const rows = buildListRows({
-    view,
+    view: listView,
     gonePaths,
     selected,
     mode,
     t,
+    counts: liveCounts,
     onSelect: (selection, index) => {
       setSelected(selection);
       setEntryIndex(index);
     },
   });
 
+  // The header totals follow the rows, so Overall cannot report a stale sum.
+  const paneView = liveCounts === null ? listView : totalsWith(listView, liveCounts);
+
   return h("div", { className: "dsc-root", "data-session-changes": true, ref: rootRef }, [
     h(ListPane, {
       t,
       state: feed.state,
-      view,
+      view: paneView,
       rows,
       mode,
       busy: feed.state.phase === "loading",
       left,
+      reverted: mode === "overall" && liveCounts !== null && feed.state.turns.length > 0,
       onMode: setModeAndStore,
-      onRefresh: feed.refresh,
+      onRefresh: refreshAll,
     }),
     h("div", {
       className: "dsc-divider",

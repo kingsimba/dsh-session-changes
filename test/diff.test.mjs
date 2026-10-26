@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildComparison } from "../src/client/comparison.js";
+import { countChangedLines } from "../src/client/diff/counts.js";
 import { reverseHunks, sliceHunk, toHunks } from "../src/client/diff/hunks.js";
 import { diffLines } from "../src/client/diff/lines.js";
 import { hunkRows, splitRows } from "../src/client/diff/rows.js";
@@ -37,6 +38,13 @@ test("diffLines handles two empty inputs", () => {
   const { ops, coarse } = diffLines([], []);
   assert.deepEqual(ops, []);
   assert.equal(coarse, false);
+});
+
+test("countChangedLines numbers the same diff the pane draws", () => {
+  assert.deepEqual(countChangedLines("a\nb\nc", "a\nB\nc"), { added: 1, deleted: 1 });
+  assert.deepEqual(countChangedLines("", "one\ntwo"), { added: 2, deleted: 0 });
+  assert.deepEqual(countChangedLines("one\ntwo", ""), { added: 0, deleted: 2 });
+  assert.deepEqual(countChangedLines("same", "same"), { added: 0, deleted: 0 });
 });
 
 test("toHunks merges nearby changes and splits distant ones", () => {

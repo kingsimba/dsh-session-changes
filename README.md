@@ -52,17 +52,30 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
   associated with. It opens the **live file on disk**, not the turn's snapshot, so you can edit it there.
 * **↗** opens the same file in the built-in **Review** tab, if you want the full-width view.
 * Selections survive a refresh of the list; **↻** re-reads both the list and the comparison.
+* **The list and the open comparison keep themselves current.** While the tab is visible, the Host
+  streams one frame whenever a listed file changes on disk, and one when a turn commits its
+  `workspace/changes`; the tab waits **1 s** for the burst to settle, then re-reads both. No polling, no
+  waiting for a turn to close before a repeated edit shows up in the comparison. **↻** stays for a manual
+  re-read; hiding the tab closes the stream.
 
 ## Overall mode
 
 `Overall` answers *"what changed since this task started"*: selecting a file diffs the text it had
 **before the Session's first recorded turn** — the Host's own pre-image — against the file as it stands now.
 
-* the list is one row per file, deduplicated by path, with `+added/−deleted` summed over every turn;
+* the list is one row per file, deduplicated by path, with `+added/−deleted` **read live**: the
+  pre-image against the file as it stands now, the same pair the comparison diffs, so the numbers and the
+  pane cannot disagree. Files with no captured pre-image, a binary, an oversized, or an unreadable one keep
+  the counts summed over the recorded turns (the roll-up stops at 40 files per refresh);
 * the comparison is a **single** diff (pre-image → current), not a set of per-turn diffs;
 * the pre-image is the real file text the Host copied just before the Session's first write to that path,
-  so the diff cannot drift when the file is edited outside the recorded turns;
+  so the diff cannot drift when the file is edited outside the recorded turns. A path outside the
+  workspace gets the same treatment: its copy lives in the sibling `_external` store, named by a SHA-1 of
+  the absolute path so a deep path cannot outgrow the Windows path limit, and files the agent edited above
+  the workspace (or outside the repository) are compared too;
 * a file created during the Session has no pre-image (`absent`), so it reads as entirely added;
+* a file whose current text equals its pre-image is **not listed at all**: Overall shows what still
+  differs, so editing a file back drops its row (and its folder line) instead of reading `+0 −0`;
 * a file that is gone from the disk is compared against empty text, so it reads as entirely deleted, and
   its name is struck through in the list;
 * a file with no recorded pre-image (it was changed before this Host build started capturing them) has no
@@ -103,10 +116,14 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
 
 ## What it reads
 
-* Host half (`lib/index.js`): four authenticated GET routes — `api/session-changes.list` (the turn list,
-  joined with the recorder's live summaries), `api/session-changes.file` (a file's current text),
-  `api/session-changes.base` (its first pre-image, or `{ absent: true }`) and `api/session-changes.exists`
-  (which listed paths are still on disk). It also copies that pre-image on the first
+* Host half (`lib/index.js`): five authenticated GET routes — `api/session-changes.list` (the turn list,
+  joined with the recorder's live summaries, **keeping only files the Session's file tools actually
+  changed**: a file with no captured pre-image is a build artifact or an outside edit the recorder saw
+  through git, not something this page can compare), `api/session-changes.file` (a file's current text),
+  `api/session-changes.base` (its first pre-image, or `{ absent: true }`), `api/session-changes.exists`
+  (which listed paths are still on disk) and `api/session-changes.watch` (a newline-delimited stream of
+  `ready` / `file` / `turn` / `ping` frames; it observes the listed files through `fs.watch` and the next
+  `workspace/changes` append through `session/event`). It also copies a file's pre-image on the first
   `fs/write-intent` / `fs/edit-intent` of each path.
 * Browser half (`src/client/`): a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body.
   Per-turn comparisons come from the existing `api/changes.diff` route (the same one the built-in Review
@@ -129,9 +146,10 @@ npm run verify     # format:check + build:check + tests
   hand: `npm run build:check` fails when the committed bundle no longer matches the sources.
 * The Host half (`lib/index.js`) is plain Node ESM and needs no build step.
 * `npm test` renders the built bundle against a stubbed Host (`test/support/harness.mjs`), unit-tests the
-  diff core, and exercises the four Host routes against a throwaway workspace, so a refactor that changes
-  the markup or a route fails loudly. It runs in one process (`--test-isolation=none`) so it also works
-  inside DSH's own sandbox; `npm run test:isolated` uses the runner's usual per-file processes instead.
+  diff core, the 1 s debounce and the frame parser, and exercises the Host routes (including the watch
+  stream) against a throwaway workspace, so a refactor that changes the markup or a route fails loudly. It
+  runs in one process (`--test-isolation=none`) so it also works inside DSH's own sandbox;
+  `npm run test:isolated` uses the runner's usual per-file processes instead.
 * `node scripts/compare-bundles.mjs <old-client.js>` renders two builds side by side over eleven scenarios
   and diffs the element trees — the check that proved the `src/client` split changed nothing.
 * Layout: `src/client/index.js` registers the tab; `changes-tab.js` holds state; `hooks/` owns every read;
@@ -154,3 +172,8 @@ These are inherited from the recorder, not this plugin:
   in a non-repository workspace are not listed.
 * The list is per Session; it is not a git working-tree view and does not show uncommitted changes
   made outside the agent.
+* Only files the Session's **file tools** changed are listed. In a git work tree the recorder also sees
+  whatever a shell command wrote (a `npm run build` bundle, a lockfile), but those have no pre-image, so
+  they are filtered out of every mode instead of appearing as undiffable rows.
+* The watch follows the files the list already shows, so a brand-new file appears when its turn commits
+  (the `turn` frame), not the moment it is created.

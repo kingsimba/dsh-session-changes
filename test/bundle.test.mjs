@@ -142,6 +142,29 @@ test("Overall compares the stored pre-image against the current file", async () 
   assert.equal(withClass(tree, "dsc-note").length, 0);
 });
 
+test("Overall drops a file that was edited back to its pre-image", async () => {
+  const harness = createHarness({
+    fetch: async (url) => {
+      const text = String(url);
+      if (text.includes("session-changes.list")) return respond(LIST);
+      if (text.includes("session-changes.exists")) return respond({ paths: {} });
+      if (text.includes("session-changes.base")) return respond({ text: "same text" });
+      if (text.includes("session-changes.file")) return respond({ text: "same text" });
+      if (text.includes("changes.diff")) return respond(textPayload("src/app.js"));
+      return refuse();
+    },
+    storage: new Map([["dsh-session-changes.mode", "overall"]]),
+  });
+  const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  // Pre-image equals the file on disk: nothing changed since the Session started,
+  // so neither the row nor its folder line may stay behind as `+0 −0`.
+  assert.equal(withClass(tree, "dsc-row").length, 0);
+  assert.equal(withClass(tree, "dsc-folder").length, 0);
+  // ...and the list says why it is empty instead of claiming there were no changes.
+  assert.match(textOf(tree), /edited back to where it started/);
+});
+
 test("Overall says so instead of rebuilding a pre-image the Host never captured", async () => {
   const { fetch } = host({ baseMissing: true });
   const harness = createHarness({

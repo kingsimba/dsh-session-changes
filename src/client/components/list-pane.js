@@ -3,9 +3,11 @@ import { h } from "../react.js";
 /**
  * The master list: title, session totals, the mode switch, and the rows.
  *
- * @param props - `{ t, state, view, rows, mode, busy, left, onMode, onRefresh }`.
+ * @param props - `{ t, state, view, rows, mode, busy, left, reverted, onMode, onRefresh }`,
+ *   where `reverted` says the empty list means "every change was undone", not
+ *   "nothing was ever recorded".
  */
-export function ListPane({ t, state, view, rows, mode, busy, left, onMode, onRefresh }) {
+export function ListPane({ t, state, view, rows, mode, busy, left, reverted, onMode, onRefresh }) {
   let listBody;
   if (state.phase === "loading") listBody = h("div", { className: "dsc-note" }, t("loading"));
   else if (state.phase === "error")
@@ -17,7 +19,8 @@ export function ListPane({ t, state, view, rows, mode, busy, left, onMode, onRef
         t("retry"),
       ),
     ]);
-  else if (rows.length === 0) listBody = h("div", { className: "dsc-note" }, t("empty"));
+  else if (rows.length === 0)
+    listBody = h("div", { className: "dsc-note" }, reverted === true ? t("reverted") : t("empty"));
   else listBody = h("div", { className: "dsc-body" }, rows);
 
   return h(

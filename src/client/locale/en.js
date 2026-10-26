@@ -4,6 +4,7 @@ export const en = {
   guideTitle: "Changes",
   guideDescription: "Every file this Session changed, by turn",
   empty: "No file changes recorded in this Session yet.",
+  reverted: "Every change in this Session has been edited back to where it started.",
   loading: "Reading changes…",
   error: "Could not read this Session's changes.",
   retry: "Retry",

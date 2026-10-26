@@ -5,6 +5,7 @@ import {
   FILE_ROUTE,
   LIST_ROUTE,
   OPEN_ROUTE,
+  WATCH_ROUTE,
 } from "./constants.js";
 
 /**
@@ -136,6 +137,63 @@ export async function readExists(sessionId, seq, signal) {
     typeof payload.paths === "object"
     ? payload.paths
     : {};
+}
+
+/**
+ * Open the Host's invalidation stream for one Session and deliver each frame as it
+ * arrives. Frames are newline-delimited JSON: `ready`, `file`, `turn`, and `ping`.
+ *
+ * The promise settles when the stream ends (the Host restarted, or the tab closed
+ * the connection); a failed open rejects.
+ *
+ * @param sessionId - the viewed Session.
+ * @param options - `{ signal, onOpen, onFrame }`.
+ * @returns when the stream ends; rejects when the route cannot be opened.
+ */
+export async function watchChanges(sessionId, options) {
+  const { signal, onOpen, onFrame } = options;
+  const response = await fetch(WATCH_ROUTE + query({ sessionId: String(sessionId) }), {
+    signal,
+    headers: { accept: "application/x-ndjson" },
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(String(response.status));
+  if (response.body === null || response.body === undefined) throw new Error("no-body");
+  if (typeof onOpen === "function") onOpen();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      buffer += decoder.decode(value, { stream: true });
+      let newline = buffer.indexOf("\n");
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (line !== "") {
+          let frame;
+          try {
+            frame = JSON.parse(line);
+          } catch (_error) {
+            frame = null;
+          }
+          if (frame !== null && typeof frame === "object" && typeof onFrame === "function") {
+            onFrame(frame);
+          }
+        }
+        newline = buffer.indexOf("\n");
+      }
+    }
+  } finally {
+    try {
+      await reader.cancel();
+    } catch (_error) {
+      // The Host already closed the body; nothing left to release.
+    }
+  }
 }
 
 /**

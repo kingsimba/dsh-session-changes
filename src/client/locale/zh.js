@@ -4,6 +4,7 @@ export const zh = {
   guideTitle: "改动",
   guideDescription: "按轮次列出本次会话改过的每个文件",
   empty: "本次会话还没有改动记录。",
+  reverted: "本次会话的改动都已被改回原样。",
   loading: "正在读取改动…",
   error: "读取本次会话的改动失败。",
   retry: "重试",

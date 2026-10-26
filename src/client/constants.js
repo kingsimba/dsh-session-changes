@@ -26,6 +26,9 @@ export const BASE_ROUTE = "api/session-changes.base";
 /** The Host route that reports which of the listed paths still exist on disk. */
 export const EXISTS_ROUTE = "api/session-changes.exists";
 
+/** The Host route that streams one frame per file invalidation and turn commit. */
+export const WATCH_ROUTE = "api/session-changes.watch";
+
 /** Persisted preferences: left pane width, wrap, list mode, whole-file scope, layout. */
 export const WIDTH_KEY = "dsh-session-changes.left";
 export const WRAP_KEY = "dsh-session-changes.wrap";
@@ -48,3 +51,6 @@ export const DIFF_CONTEXT = 3;
 
 /** Identifies this package's stylesheet tag, so a reload never stacks a second copy. */
 export const CSS_TAG_ID = "dsh-session-changes/list.css";
+
+/** Placeholder comment added to exercise the Session changes page; safe to delete. */
+export const SANITY_CHECK_NOTE = "session-changes smoke test";

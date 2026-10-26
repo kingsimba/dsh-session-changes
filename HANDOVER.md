@@ -110,7 +110,7 @@ plugins/dsh-session-changes/
 ├─ .prettierignore       # 跳过生成物 lib/client.js 与 *.md
 ├─ scripts/build.mjs     # rollup：src/client → lib/client.js，带 --check
 ├─ src/client/           # 浏览器端源码（拆分后的真身，见下）
-├─ lib/index.js          # Host：四条路由 + 首次改动前备份 + 清理（已格式化，无构建步骤）
+├─ lib/index.js          # Host：五条路由（含 watch 失效流）+ 首次改动前备份 + 清理（已格式化，无构建步骤）
 ├─ lib/client.js         # 【生成物】rollup 打包结果，别手改
 ├─ test/                 # harness + diff/bundle 测试（node --test）
 └─ profile/              # 快照：~/.dsh/profiles/desktop 的 cordis.patch.yml 与 package.json
@@ -122,6 +122,7 @@ src/client/
 ├─ changes-tab.js         # 状态与编排（唯一持有页面级 useState 的组件）
 ├─ hooks/
 │   ├─ use-changes-feed.js  # 列表 + 每轮 diff + 缓存 + 刷新计数（一次封装两个 effect）
+│   ├─ use-auto-refresh.js  # 订阅 Host 的失效流（fs.watch / session/event），debounce 1s 后刷新
 │   ├─ use-selection.js     # 选中项跟随列表重建（原 adopt 逻辑）
 │   ├─ use-whole-file.js    # .file，missing/oversized 归一成 phase
 │   ├─ use-base.js          # .base
