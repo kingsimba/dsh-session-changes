@@ -2,20 +2,18 @@ import { readBase } from "../api.js";
 import { react } from "../react.js";
 
 /**
- * The Session's first pre-image of the selected file: the stored baseline that
- * replaces the old reverse reconstruction in Overall.
+ * The Session's first pre-image of the selected file: the stored baseline the
+ * comparison diffs against.
  *
- * @param input - `{ sessionId, mode, selected, nonce }`.
+ * @param input - `{ sessionId, selected, entry, nonce }`.
  * @returns `{ phase: "ready", text }` / `{ phase: "ready", absent: true }` /
  *   `{ phase: "loading" }` / `{ phase: "error" }`, or undefined before the read.
  */
-export function useBase({ sessionId, mode, selected, nonce }) {
+export function useBase({ sessionId, selected, entry, nonce }) {
   const [state, setState] = react.useState(undefined);
   react.useEffect(() => {
-    if (mode !== "overall" || selected === null) return undefined;
+    if (selected === null || entry === undefined) return undefined;
     if (typeof sessionId !== "string" || sessionId === "") return undefined;
-    const entry = selected.entries[0];
-    if (entry === undefined) return undefined;
     let live = true;
     const controller = new AbortController();
     setState({ phase: "loading" });
@@ -30,6 +28,6 @@ export function useBase({ sessionId, mode, selected, nonce }) {
       live = false;
       controller.abort();
     };
-  }, [mode, selected, sessionId, nonce]);
+  }, [selected, entry, sessionId, nonce]);
   return state;
 }

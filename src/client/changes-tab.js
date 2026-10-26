@@ -1,9 +1,9 @@
 import { DetailPane } from "./components/detail-pane.js";
 import { ListPane } from "./components/list-pane.js";
 import { buildListRows } from "./components/list-rows.js";
-import { LAYOUT_KEY, MODE_KEY, REVIEW_PREFIX, WHOLE_KEY, WRAP_KEY } from "./constants.js";
-import { useBase } from "./hooks/use-base.js";
+import { LAYOUT_KEY, REVIEW_PREFIX, WRAP_KEY } from "./constants.js";
 import { useAutoRefresh } from "./hooks/use-auto-refresh.js";
+import { useBase } from "./hooks/use-base.js";
 import { useChangesFeed } from "./hooks/use-changes-feed.js";
 import { useComparison } from "./hooks/use-comparison.js";
 import { useExists } from "./hooks/use-exists.js";
@@ -16,12 +16,11 @@ import { fallback } from "./locale/fallback.js";
 import { openResource } from "./open-resource.js";
 import { h, react } from "./react.js";
 import { requestOpen } from "./api.js";
-import { activeEntryOf, entryKey } from "./selection.js";
-import { readLayout, readMode, readWhole, readWrap, writeStored } from "./storage.js";
+import { readLayout, readWrap, writeStored } from "./storage.js";
 
 /**
  * Recompute the view's session totals from the rows as they are shown, using the
- * live Overall counts where they exist and the recorded ones everywhere else.
+ * live counts where they exist and the recorded ones everywhere else.
  *
  * @param view - the current view.
  * @param counts - `{ [path]: { added, deleted } }`.
@@ -43,9 +42,9 @@ function totalsWith(view, counts) {
 }
 
 /**
- * Drop the rows Overall no longer has anything to show for: a file edited back to
- * its pre-image nets zero, so it is not "changed since this task started" and must
- * not linger as `+0 −0`. Rows the roll-up could not price keep their recorded counts
+ * Drop the rows that no longer have anything to show: a file edited back to its
+ * pre-image nets zero, so it is not "changed since this task started" and must not
+ * linger as `+0 −0`. Rows the roll-up could not price keep their recorded counts
  * and stay. A folder left with no rows goes with them.
  *
  * @param view - the current view.
@@ -73,8 +72,9 @@ function withoutUnchanged(view, counts) {
 
 /**
  * Master list on the left, the selected file's comparison on the right, one
- * draggable divider. All state lives here; the panes are presentational, and every
- * read has its own hook.
+ * draggable divider. Every row answers the same question — what changed since this
+ * task started — so the pane always diffs the Session's first pre-image against the
+ * file as it stands now.
  *
  * @param props - `{ t, sessionId, tab }` from the sidebar tab system.
  */
@@ -83,85 +83,52 @@ export function ChangesTab(props) {
   const sessionId = props.sessionId;
   const visible = props.tab === undefined ? true : props.tab.visible !== false;
 
-  const [mode, setMode] = react.useState(readMode);
   const [selected, setSelected] = react.useState(null);
-  const [entryIndex, setEntryIndex] = react.useState(0);
-  const [turnFilter, setTurnFilter] = react.useState(0);
   const [wrap, setWrap] = react.useState(readWrap);
-  const [whole, setWhole] = react.useState(readWhole);
   const [layout, setLayout] = react.useState(readLayout);
-  const [wholeNonce, setWholeNonce] = react.useState(0);
   const [opening, setOpening] = react.useState(false);
   const [openFailed, setOpenFailed] = react.useState(false);
 
   const { rootRef, left, dragging, startDrag, nudge } = useResizable();
-  const feed = useChangesFeed({ sessionId, visible, selected });
+  const feed = useChangesFeed({ sessionId, visible });
 
-  /**
-   * Re-read everything the pane shows: the turn list and the per-turn hunks
-   * (`feed.nonce`), plus the whole-file and pre-image sides of the comparison
-   * (`wholeNonce`). The whole-file side is a separate read because `Full` and
-   * `Overall` compare against text read from the disk, not against a hunk.
-   */
-  const refreshAll = () => {
-    feed.refresh();
-    setWholeNonce((value) => value + 1);
-  };
+  /** Re-read the list and both sides of the comparison. */
+  const refreshAll = () => feed.refresh();
 
   // The Host streams each invalidation; a 1s quiet period folds a save burst into
   // one re-read of the list and the open comparison.
   useAutoRefresh({ sessionId, visible, refresh: refreshAll });
-  const view = useView({ turns: feed.state.turns, mode, turnFilter });
-  // Overall's rows must number the same pre-image → current text the pane diffs.
+
+  const view = useView({ turns: feed.state.turns });
+  // The rows must number the same pre-image → current text the pane diffs.
   const liveCounts = useOverallCounts({
     sessionId,
-    mode,
     turns: feed.state.turns,
     nonce: feed.nonce,
   });
-  // A file edited back to its pre-image nets zero: Overall is not showing it any
-  // more, so its row and its folder leave the list instead of reading `+0 −0`.
   const listView = liveCounts === null ? view : withoutUnchanged(view, liveCounts);
-  useSelection({ view: listView, mode, selected, setSelected, setEntryIndex });
+  useSelection({ view: listView, selected, setSelected });
+
+  const activeEntry =
+    selected === null || selected.entries.length === 0
+      ? undefined
+      : selected.entries[selected.entries.length - 1];
+  const baseEntry =
+    selected === null || selected.entries.length === 0 ? undefined : selected.entries[0];
   const wholeState = useWholeFile({
     sessionId,
-    whole,
-    mode,
     selected,
-    entryIndex,
-    nonce: wholeNonce,
+    entry: activeEntry,
+    nonce: feed.nonce,
   });
-  const baseState = useBase({ sessionId, mode, selected, nonce: wholeNonce });
+  const baseState = useBase({ sessionId, selected, entry: baseEntry, nonce: feed.nonce });
   const newestSeq = feed.state.turns.length === 0 ? 0 : feed.state.turns[0].seq;
-  const gonePaths = useExists({ sessionId, newestSeq, nonce: feed.nonce, wholeNonce });
-  const comparison = useComparison({
-    mode,
-    selected,
-    diffs: feed.diffs,
-    wholeState,
-    baseState,
-    view,
-  });
-
-  const activeEntry = activeEntryOf(selected, entryIndex);
-  /** The turn the list is showing; the chip highlight follows it. */
-  const displayedTurn = view.groups.length === 0 ? undefined : view.groups[0].turn;
-
-  const setModeAndStore = (next) => {
-    writeStored(MODE_KEY, next);
-    setMode(next);
-  };
+  const gonePaths = useExists({ sessionId, newestSeq, nonce: feed.nonce });
+  const comparison = useComparison({ selected, wholeState, baseState });
 
   const toggleWrap = () => {
     setWrap((value) => {
       writeStored(WRAP_KEY, value === true ? "false" : "true");
-      return value !== true;
-    });
-  };
-
-  const toggleWhole = () => {
-    setWhole((value) => {
-      writeStored(WHOLE_KEY, value === true ? "false" : "true");
       return value !== true;
     });
   };
@@ -201,27 +168,16 @@ export function ChangesTab(props) {
       .finally(() => setOpening(false));
   };
 
-  /** Forget the failed comparison and read it again. */
-  const retryPayload = () => {
-    if (activeEntry === undefined) return;
-    feed.retryEntry(entryKey(activeEntry));
-    setWholeNonce((value) => value + 1);
-  };
-
   const rows = buildListRows({
     view: listView,
     gonePaths,
     selected,
-    mode,
     t,
     counts: liveCounts,
-    onSelect: (selection, index) => {
-      setSelected(selection);
-      setEntryIndex(index);
-    },
+    onSelect: (selection) => setSelected(selection),
   });
 
-  // The header totals follow the rows, so Overall cannot report a stale sum.
+  // The header totals follow the rows, so the list cannot report a stale sum.
   const paneView = liveCounts === null ? listView : totalsWith(listView, liveCounts);
 
   return h("div", { className: "dsc-root", "data-session-changes": true, ref: rootRef }, [
@@ -230,11 +186,9 @@ export function ChangesTab(props) {
       state: feed.state,
       view: paneView,
       rows,
-      mode,
       busy: feed.state.phase === "loading",
       left,
-      reverted: mode === "overall" && liveCounts !== null && feed.state.turns.length > 0,
-      onMode: setModeAndStore,
+      reverted: liveCounts !== null && feed.state.turns.length > 0,
       onRefresh: refreshAll,
     }),
     h("div", {
@@ -250,24 +204,17 @@ export function ChangesTab(props) {
     }),
     h(DetailPane, {
       t,
-      mode,
-      turns: view.turns,
-      activeTurn: displayedTurn,
-      onPickTurn: setTurnFilter,
       selected,
       activeEntry,
       layout,
-      whole,
       wrap,
       opening,
       openFailed,
       comparison,
-      diffs: feed.diffs,
       baseState,
       wholeState,
-      onRetry: retryPayload,
+      onRetry: refreshAll,
       onToggleLayout: toggleLayout,
-      onToggleWhole: toggleWhole,
       onOpenFile: openInApp,
       onToggleWrap: toggleWrap,
       onOpenReview: openReview,

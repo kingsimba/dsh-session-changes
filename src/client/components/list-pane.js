@@ -1,13 +1,13 @@
 import { h } from "../react.js";
 
 /**
- * The master list: title, session totals, the mode switch, and the rows.
+ * The master list: title, session totals, and the rows.
  *
- * @param props - `{ t, state, view, rows, mode, busy, left, reverted, onMode, onRefresh }`,
- *   where `reverted` says the empty list means "every change was undone", not
- *   "nothing was ever recorded".
+ * @param props - `{ t, state, view, rows, busy, left, reverted, onRefresh }`, where
+ *   `reverted` says the empty list means "every change was undone", not "nothing
+ *   was ever recorded".
  */
-export function ListPane({ t, state, view, rows, mode, busy, left, reverted, onMode, onRefresh }) {
+export function ListPane({ t, state, view, rows, busy, left, reverted, onRefresh }) {
   let listBody;
   if (state.phase === "loading") listBody = h("div", { className: "dsc-note" }, t("loading"));
   else if (state.phase === "error")
@@ -47,32 +47,6 @@ export function ListPane({ t, state, view, rows, mode, busy, left, reverted, onM
             onClick: onRefresh,
           },
           "↻",
-        ),
-      ]),
-      h("div", { className: "dsc-modes", key: "m" }, [
-        h(
-          "button",
-          {
-            type: "button",
-            className: "dsc-mode",
-            key: "t",
-            "data-active": mode === "turn" ? "true" : "false",
-            "aria-pressed": mode === "turn" ? "true" : "false",
-            onClick: () => onMode("turn"),
-          },
-          t("modeTurn"),
-        ),
-        h(
-          "button",
-          {
-            type: "button",
-            className: "dsc-mode",
-            key: "o",
-            "data-active": mode === "overall" ? "true" : "false",
-            "aria-pressed": mode === "overall" ? "true" : "false",
-            onClick: () => onMode("overall"),
-          },
-          t("modeOverall"),
         ),
       ]),
       listBody,

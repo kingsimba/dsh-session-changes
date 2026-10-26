@@ -2,10 +2,10 @@ import { react } from "../react.js";
 import { buildView } from "../view.js";
 
 /**
- * The left list, recomputed only when the turns or one of the two switches change.
- * @param input - `{ turns, mode, turnFilter }`.
+ * The left list, recomputed only when the turns change.
+ * @param input - `{ turns }`.
  * @returns the built view.
  */
-export function useView({ turns, mode, turnFilter }) {
-  return react.useMemo(() => buildView(turns, mode, turnFilter), [turns, mode, turnFilter]);
+export function useView({ turns }) {
+  return react.useMemo(() => buildView(turns), [turns]);
 }

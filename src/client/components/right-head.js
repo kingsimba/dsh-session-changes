@@ -2,8 +2,8 @@ import { h } from "../react.js";
 import { Counts } from "./counts.js";
 
 /**
- * The comparison toolbar: name, counts, and the layout / scope / open / wrap /
- * review buttons.
+ * The comparison toolbar: name, counts, and the layout / open / wrap / review
+ * buttons.
  *
  * @param props - the selected file plus the actions the buttons run.
  */
@@ -11,12 +11,10 @@ export function RightHead({
   t,
   selected,
   layout,
-  whole,
   wrap,
   opening,
   openFailed,
   onToggleLayout,
-  onToggleWhole,
   onOpenFile,
   onToggleWrap,
   onOpenReview,
@@ -51,22 +49,6 @@ export function RightHead({
             onClick: onToggleLayout,
           },
           layout === "inline" ? t("layoutInlineShort") : t("layoutSplitShort"),
-        ),
-    selected === null
-      ? null
-      : h(
-          "button",
-          {
-            type: "button",
-            className: "dsc-btn",
-            key: "f",
-            title: whole === true ? t("wholeOff") : t("wholeOn"),
-            "aria-label": whole === true ? t("wholeOff") : t("wholeOn"),
-            "aria-pressed": whole === true ? "true" : "false",
-            "data-active": whole === true ? "true" : "false",
-            onClick: onToggleWhole,
-          },
-          t("wholeShort"),
         ),
     selected === null
       ? null

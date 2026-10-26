@@ -266,19 +266,29 @@ export function createHarness({ storage = new Map(), fetch = async () => refuse(
    * Run every effect whose dependencies changed, then render again, until the tree
    * settles. Mirrors a React mount followed by its state updates.
    *
+   * Reads land asynchronously, so a render with no pending effects is not proof that
+   * the tree is final: three quiet ticks are given for a fetch to resolve and its
+   * `setState` to show up in the next render.
+   *
    * @param props - the props the tab system passes.
-   * @param rounds - the most renders to allow.
+   * @param rounds - the most effect rounds to allow.
    * @returns the settled tree.
    */
   const settle = async (props = {}, rounds = 12) => {
     if (tree === null) render(props);
-    for (let at = 0; at < rounds; at += 1) {
+    let quiet = 0;
+    for (let at = 0; at < rounds + 3; at += 1) {
       const pending = fakeReact.takeEffects();
-      if (pending.length === 0) return tree;
-      for (const cell of pending) {
-        if (typeof cell.cleanup === "function") cell.cleanup();
-        const cleanup = cell.effect();
-        cell.cleanup = typeof cleanup === "function" ? cleanup : undefined;
+      if (pending.length === 0) {
+        quiet += 1;
+        if (quiet > 3) return tree;
+      } else {
+        quiet = 0;
+        for (const cell of pending) {
+          if (typeof cell.cleanup === "function") cell.cleanup();
+          const cleanup = cell.effect();
+          cell.cleanup = typeof cleanup === "function" ? cleanup : undefined;
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, 0));
       render(props);

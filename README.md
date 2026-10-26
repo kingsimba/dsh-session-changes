@@ -1,8 +1,11 @@
 # dsh-session-changes
 
 An always-available **Changes** page for the DeepSeek Harness right sidebar: a master–detail split with
-every file the current Session changed on the left, grouped by turn, and the selected file's
-**side-by-side comparison** on the right. The divider between them is draggable.
+every file the current Session changed on the left, and the selected file's **side-by-side comparison**
+on the right. The divider between them is draggable.
+
+One question, one answer: *what changed since this task started* — the file's first pre-image in this
+Session against the file as it stands now. There is no per-turn mode.
 
 ## Why
 
@@ -14,8 +17,8 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
 
 ```
 ┌────────────────────┬─┬──────────────────────────────────┐
-│ Session changes    │ │ src/app.ts        +12 −3 ↵ ⤴ ↗   │
-│ Turn 3      2 files│ │ ┌────────────┬─────────────────┐ │
+│ Session changes    │ │ src/app.ts        +12 −3 Split   │
+│              +16 −4│ │ ┌────────────┬─────────────────┐ │
 │ src/               │ │ │ 41  const… │ 41  const…      │ │
 │   app.ts    +12 −3 │ │ │ 42 -old    │ 42 +new         │ │
 │ ./                 │ │ │ 43 -gone   │ 43 +added       │ │
@@ -24,65 +27,52 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
                   ↑ drag to resize
 ```
 
-* **Files are grouped by folder** inside each turn: one muted monospace line per folder (`src/components/`,
-  or `./` for the workspace root), then the file names alone beneath it — so the list stays narrow and
-  the mouse target stays on the name. Folder lines are labels, not collapsible headers.
+* **Files are grouped by folder**: one muted monospace line per folder (`src/components/`, or `./` for
+  the workspace root), then the file names alone beneath it — so the list stays narrow and the mouse
+  target stays on the name. Folder lines are labels, not collapsible headers.
 * **Syntax colours come from the same tokenizer the built-in Review tab uses** — `useCodeHighlighter` and
-  `languageForPath` from `@deepseek-ai/dsh-client-ui-primitives` (Shiki). Like the Review tab, each hunk
-  side is tokenized independently, because the omitted source lines make whole-file tokenization
-  impossible. If the primitives module is not exposed to this plugin, the pane degrades to plain text;
-  the grid carries `data-spans="false"` when that happens.
-* **Two modes** — `By turn` keeps a **turn strip above the comparison** (every turn, oldest first, newest
-  selected by default) and the left list shows **that turn's files**, so the strip drives both panes.
-  `Overall` merges every turn into one row per file with counts summed, and the comparison becomes the
-  baseline→current diff. The mode choice is remembered.
+  `languageForPath` from `@deepseek-ai/dsh-client-ui-primitives` (Shiki). Each hunk side is tokenized
+  independently, because the omitted source lines make whole-file tokenization impossible. If the
+  primitives module is not exposed to this plugin, the pane degrades to plain text; the grid carries
+  `data-spans="false"` when that happens.
 * **Drag the divider** (or focus it and press ←/→, Shift for a bigger step) to resize the list. The
   width is remembered per browser.
 * **↵** toggles line wrapping. Unwrapped keeps a **fixed 50/50 split**: each lane is its own scroll
   surface and the two are kept in step (vertical and horizontal offsets), so a long line scrolls inside
   its own half instead of widening the pane or moving the divider. Wrapped turns the pane into one 50/50
   grid that wraps inside the cells.
-* **Full / hunks** and **Split / Inline** are two independent axes:
-  * **Full** changes the *scope* — hunks only, or the whole file. It rebuilds the file's text on both
-    sides of the comparison (`reverseHunks` back through the newer turns), so the full view is a real
-    whole-file diff, not just the current text.
-  * **Split / Inline** changes the *layout* — two 50/50 lanes, or one column with both line numbers, a
-    sign, and the line. Either layout renders either scope.
+* **Split / Inline** changes the layout only — two 50/50 lanes, or one column with both line numbers, a
+  sign, and the line.
 * **⤴** opens the selected file in its default application — VSCode, if that is what the extension is
-  associated with. It opens the **live file on disk**, not the turn's snapshot, so you can edit it there.
+  associated with. It opens the **live file on disk**, so you can edit it there.
 * **↗** opens the same file in the built-in **Review** tab, if you want the full-width view.
 * Selections survive a refresh of the list; **↻** re-reads both the list and the comparison.
 * **The list and the open comparison keep themselves current.** While the tab is visible, the Host
-  streams one frame whenever a listed file changes on disk, and one when a turn commits its
-  `workspace/changes`; the tab waits **1 s** for the burst to settle, then re-reads both. No polling, no
-  waiting for a turn to close before a repeated edit shows up in the comparison. **↻** stays for a manual
-  re-read; hiding the tab closes the stream.
+  streams one frame whenever a listed file changes on disk, and one when the Session's recorder commits
+  a turn; the tab waits **1 s** for the burst to settle, then re-reads both. No polling. **↻** stays for
+  a manual re-read; hiding the tab closes the stream.
 
-## Overall mode
+## What it shows
 
-`Overall` answers *"what changed since this task started"*: selecting a file diffs the text it had
-**before the Session's first recorded turn** — the Host's own pre-image — against the file as it stands now.
+Every row answers *"what changed since this task started"*: selecting a file diffs the text it had
+**before the Session's first recorded write** — the Host's own pre-image — against the file as it stands now.
 
 * the list is one row per file, deduplicated by path, with `+added/−deleted` **read live**: the
   pre-image against the file as it stands now, the same pair the comparison diffs, so the numbers and the
   pane cannot disagree. Files with no captured pre-image, a binary, an oversized, or an unreadable one keep
   the counts summed over the recorded turns (the roll-up stops at 40 files per refresh);
-* the comparison is a **single** diff (pre-image → current), not a set of per-turn diffs;
 * the pre-image is the real file text the Host copied just before the Session's first write to that path,
   so the diff cannot drift when the file is edited outside the recorded turns. A path outside the
   workspace gets the same treatment: its copy lives in the sibling `_external` store, named by a SHA-1 of
   the absolute path so a deep path cannot outgrow the Windows path limit, and files the agent edited above
   the workspace (or outside the repository) are compared too;
 * a file created during the Session has no pre-image (`absent`), so it reads as entirely added;
-* a file whose current text equals its pre-image is **not listed at all**: Overall shows what still
+* a file whose current text equals its pre-image is **not listed at all**: the page shows what still
   differs, so editing a file back drops its row (and its folder line) instead of reading `+0 −0`;
 * a file that is gone from the disk is compared against empty text, so it reads as entirely deleted, and
   its name is struck through in the list;
 * a file with no recorded pre-image (it was changed before this Host build started capturing them) has no
   baseline at all, so the pane says exactly that and shows no diff — it never rebuilds one from the turns.
-
-`Full` in **By turn** still rebuilds the state just before the chosen turn with `reverseHunks`; when that
-walk no longer lines up, the pane annotates the current file and explains why, instead of dead-ending.
 
 ## Editing
 
@@ -126,8 +116,8 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
   `workspace/changes` append through `session/event`). It also copies a file's pre-image on the first
   `fs/write-intent` / `fs/edit-intent` of each path.
 * Browser half (`src/client/`): a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body.
-  Per-turn comparisons come from the existing `api/changes.diff` route (the same one the built-in Review
-  tab uses) and are cached per tab; **↻** clears the cache and re-reads.
+  It folds the recorded turns into one list, diffs the pre-image against the current text with its own
+  diff engine, and never calls `api/changes.diff`.
 
 ## Development
 
@@ -146,7 +136,7 @@ npm run verify     # format:check + build:check + tests
   hand: `npm run build:check` fails when the committed bundle no longer matches the sources.
 * The Host half (`lib/index.js`) is plain Node ESM and needs no build step.
 * `npm test` renders the built bundle against a stubbed Host (`test/support/harness.mjs`), unit-tests the
-  diff core, the 1 s debounce and the frame parser, and exercises the Host routes (including the watch
+  diff engine, the 1 s debounce and the frame parser, and exercises the Host routes (including the watch
   stream) against a throwaway workspace, so a refactor that changes the markup or a route fails loudly. It
   runs in one process (`--test-isolation=none`) so it also works inside DSH's own sandbox;
   `npm run test:isolated` uses the runner's usual per-file processes instead.
@@ -174,6 +164,6 @@ These are inherited from the recorder, not this plugin:
   made outside the agent.
 * Only files the Session's **file tools** changed are listed. In a git work tree the recorder also sees
   whatever a shell command wrote (a `npm run build` bundle, a lockfile), but those have no pre-image, so
-  they are filtered out of every mode instead of appearing as undiffable rows.
-* The watch follows the files the list already shows, so a brand-new file appears when its turn commits
-  (the `turn` frame), not the moment it is created.
+  they are filtered out instead of appearing as undiffable rows.
+* The watch follows the files the list already shows, so a brand-new file appears when its turn commits,
+  not the moment it is created.

@@ -8,10 +8,10 @@ import { react } from "../react.js";
  * removed by anything else (a shell command, an editor, a `git checkout`) has to be
  * checked against the filesystem.
  *
- * @param input - `{ sessionId, newestSeq, nonce, wholeNonce }`.
+ * @param input - `{ sessionId, newestSeq, nonce }`.
  * @returns a set-shaped map of the paths that are gone.
  */
-export function useExists({ sessionId, newestSeq, nonce, wholeNonce }) {
+export function useExists({ sessionId, newestSeq, nonce }) {
   const [gonePaths, setGonePaths] = react.useState({});
   react.useEffect(() => {
     if (newestSeq <= 0 || typeof sessionId !== "string" || sessionId === "") return undefined;
@@ -31,6 +31,6 @@ export function useExists({ sessionId, newestSeq, nonce, wholeNonce }) {
       live = false;
       controller.abort();
     };
-  }, [sessionId, newestSeq, nonce, wholeNonce]);
+  }, [sessionId, newestSeq, nonce]);
   return gonePaths;
 }

@@ -1,20 +1,17 @@
 import { h } from "../react.js";
 import { DetailBody } from "./detail-body.js";
 import { RightHead } from "./right-head.js";
-import { TurnChips } from "./turn-chips.js";
 
 /**
- * The comparison pane: toolbar, turn strip, and the body.
+ * The comparison pane: toolbar and body.
  *
- * @param props - `{ t, mode, turns, activeTurn, onPickTurn }` plus the toolbar and
- *   body inputs: `selected`, `activeEntry`, `layout`, `whole`, `wrap`, `opening`,
- *   `openFailed`, `comparison`, `diffs`, `baseState`, `wholeState`, `onRetry`, and
- *   the toolbar callbacks.
+ * @param props - the toolbar and body inputs: `selected`, `activeEntry`, `layout`,
+ *   `wrap`, `opening`, `openFailed`, `comparison`, `baseState`, `wholeState`,
+ *   `onRetry`, and the toolbar callbacks.
  */
-export function DetailPane({ t, mode, turns, activeTurn, onPickTurn, ...rest }) {
+export function DetailPane(props) {
   return h("div", { className: "dsc-pane dsc-right", key: "r" }, [
-    h(RightHead, { t, ...rest }),
-    mode === "turn" ? h(TurnChips, { t, turns, activeTurn, onPick: onPickTurn }) : null,
-    h(DetailBody, { t, mode, ...rest }),
+    h(RightHead, props),
+    h(DetailBody, props),
   ]);
 }

@@ -5,21 +5,17 @@ import { sameSelection, selectionOf } from "../selection.js";
  * Keep the selection pointing at a listed row: adopt the same path when the list
  * still has it, otherwise the first listed file, otherwise nothing.
  *
- * @param input - `{ view, mode, selected, setSelected, setEntryIndex }`.
+ * @param input - `{ view, selected, setSelected }`.
  */
-export function useSelection({ view, mode, selected, setSelected, setEntryIndex }) {
+export function useSelection({ view, selected, setSelected }) {
   react.useEffect(() => {
     if (view.files === 0) {
       if (selected !== null) setSelected(null);
       return;
     }
-    // Adopt the listed row, which also re-derives the entry when the mode changed.
     const adopt = (row) => {
       const next = selectionOf(row);
-      if (!sameSelection(selected, next)) {
-        setSelected(next);
-        setEntryIndex(next.entries.length - 1);
-      }
+      if (!sameSelection(selected, next)) setSelected(next);
     };
     for (const group of view.groups)
       for (const folder of group.folders)
@@ -36,5 +32,5 @@ export function useSelection({ view, mode, selected, setSelected, setEntryIndex 
         return;
       }
     setSelected(null);
-  }, [view, mode]);
+  }, [view, selected]);
 }

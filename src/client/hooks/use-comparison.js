@@ -5,12 +5,12 @@ import { react } from "../react.js";
  * The comparison for the selected file, recomputed only when one of its sources
  * changes.
  *
- * @param input - `{ mode, selected, diffs, wholeState, baseState, view }`.
+ * @param input - `{ selected, wholeState, baseState }`.
  * @returns the comparison, or null while nothing is selected.
  */
-export function useComparison({ mode, selected, diffs, wholeState, baseState, view }) {
+export function useComparison({ selected, wholeState, baseState }) {
   return react.useMemo(
-    () => buildComparison({ mode, selected, diffs, wholeState, baseState, view }),
-    [mode, selected, diffs, wholeState, baseState, view],
+    () => buildComparison({ selected, wholeState, baseState }),
+    [selected, wholeState, baseState],
   );
 }

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildComparison } from "../src/client/comparison.js";
 import { countChangedLines } from "../src/client/diff/counts.js";
-import { reverseHunks, sliceHunk, toHunks } from "../src/client/diff/hunks.js";
+import { sliceHunk, toHunks } from "../src/client/diff/hunks.js";
 import { diffLines } from "../src/client/diff/lines.js";
 import { hunkRows, splitRows } from "../src/client/diff/rows.js";
 
@@ -15,6 +15,8 @@ import { hunkRows, splitRows } from "../src/client/diff/rows.js";
 function changes(ops) {
   return ops.filter((entry) => entry.op !== " ").map((entry) => entry.op + entry.text);
 }
+
+const SELECTED = { path: "a.js", entries: [{ seq: 3, index: 0, turn: 1 }] };
 
 test("diffLines keeps the common prefix and suffix as context", () => {
   const { ops, coarse } = diffLines(["a", "b", "c"], ["a", "B", "c"]);
@@ -83,18 +85,6 @@ test("sliceHunk numbers both sides from the range start", () => {
   });
 });
 
-test("reverseHunks walks a change back to its old text", () => {
-  const before = ["one", "two", "three", "four"];
-  const after = ["one", "TWO", "three", "four", "five"];
-  const hunks = toHunks(diffLines(before, after).ops, 1);
-  assert.equal(reverseHunks(after.join("\n"), hunks), before.join("\n"));
-});
-
-test("reverseHunks refuses a hunk that no longer lines up", () => {
-  const hunks = toHunks(diffLines(["a", "b"], ["a", "B"]).ops, 0);
-  assert.equal(reverseHunks("a\nC", hunks), null);
-});
-
 test("splitRows pairs a deletion run with the additions that follow", () => {
   const numbered = hunkRows({
     oldStart: 1,
@@ -115,26 +105,29 @@ test("splitRows pairs a deletion run with the additions that follow", () => {
   assert.equal(rows[3].right.text, "keep 2");
 });
 
-test("buildComparison is not ready until the whole file was read", () => {
+test("buildComparison waits for the current file to be read", () => {
   const comparison = buildComparison({
-    mode: "overall",
-    selected: { path: "a.js", entries: [{ seq: 3, index: 0, turn: 1 }] },
-    diffs: {},
+    selected: SELECTED,
     wholeState: undefined,
     baseState: undefined,
-    view: { groups: [] },
+  });
+  assert.deepEqual(comparison, { status: "pending" });
+});
+
+test("buildComparison waits for the pre-image read", () => {
+  const comparison = buildComparison({
+    selected: SELECTED,
+    wholeState: { phase: "ready", text: "one" },
+    baseState: { phase: "loading" },
   });
   assert.deepEqual(comparison, { status: "pending" });
 });
 
 test("buildComparison diffs the stored pre-image against the current file", () => {
   const comparison = buildComparison({
-    mode: "overall",
-    selected: { path: "a.js", entries: [{ seq: 3, index: 0, turn: 1 }] },
-    diffs: {},
+    selected: SELECTED,
     wholeState: { phase: "ready", text: "one\nTWO\n" },
     baseState: { phase: "ready", text: "one\ntwo\n" },
-    view: { groups: [] },
   });
   assert.equal(comparison.status, "ready");
   assert.equal(comparison.gone, false);
@@ -147,17 +140,13 @@ test("buildComparison diffs the stored pre-image against the current file", () =
     ),
     ["-two", "+TWO"],
   );
-  assert.equal(comparison.full.length, 1);
 });
 
 test("buildComparison shows a new file as additions only", () => {
   const comparison = buildComparison({
-    mode: "overall",
-    selected: { path: "a.js", entries: [{ seq: 3, index: 0, turn: 1 }] },
-    diffs: {},
+    selected: SELECTED,
     wholeState: { phase: "ready", text: "one\ntwo" },
     baseState: { phase: "ready", absent: true },
-    view: { groups: [] },
   });
   assert.equal(comparison.status, "ready");
   assert.deepEqual(
@@ -168,12 +157,9 @@ test("buildComparison shows a new file as additions only", () => {
 
 test("buildComparison reads a deleted path as an empty new side", () => {
   const comparison = buildComparison({
-    mode: "overall",
-    selected: { path: "a.js", entries: [{ seq: 3, index: 0, turn: 1 }] },
-    diffs: {},
+    selected: SELECTED,
     wholeState: { phase: "missing" },
     baseState: { phase: "ready", text: "one\ntwo" },
-    view: { groups: [] },
   });
   assert.equal(comparison.gone, true);
   assert.deepEqual(
@@ -182,64 +168,26 @@ test("buildComparison reads a deleted path as an empty new side", () => {
   );
 });
 
-test("buildComparison reports no-base instead of rebuilding one from the turns", () => {
+test("buildComparison reports no-base when the Host has no pre-image", () => {
   const comparison = buildComparison({
-    mode: "overall",
-    selected: { path: "a.js", entries: [{ seq: 5, index: 0, turn: 2 }] },
-    diffs: {
-      "5:0": {
-        phase: "ready",
-        data: {
-          kind: "text",
-          path: "a.js",
-          before: true,
-          after: true,
-          hunks: [
-            { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-gone", "+kept"] },
-          ],
-        },
-      },
-    },
+    selected: SELECTED,
     wholeState: { phase: "ready", text: "kept" },
     baseState: { phase: "error" },
-    view: { groups: [] },
   });
   assert.deepEqual(comparison, { status: "no-base" });
 });
 
-test("buildComparison waits for the pre-image read in Overall", () => {
-  const comparison = buildComparison({
-    mode: "overall",
-    selected: { path: "a.js", entries: [{ seq: 3, index: 0, turn: 1 }] },
-    diffs: {},
-    wholeState: { phase: "ready", text: "one" },
-    baseState: { phase: "loading" },
-    view: { groups: [] },
-  });
-  assert.deepEqual(comparison, { status: "pending" });
-});
-
-test("buildComparison reports drift when a turn no longer lines up", () => {
-  const comparison = buildComparison({
-    mode: "turn",
-    selected: { path: "a.js", entries: [{ seq: 5, index: 0, turn: 2 }] },
-    diffs: {
-      "5:0": {
-        phase: "ready",
-        data: {
-          kind: "text",
-          path: "a.js",
-          before: true,
-          after: true,
-          hunks: [
-            { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-gone", "+kept"] },
-          ],
-        },
-      },
-    },
-    wholeState: { phase: "ready", text: "something else" },
-    baseState: undefined,
-    view: { groups: [{ turn: 2, total: 1, folders: [] }] },
-  });
-  assert.deepEqual(comparison, { status: "drift" });
+test("buildComparison passes a binary or oversized file to the pane", () => {
+  assert.deepEqual(
+    buildComparison({ selected: SELECTED, wholeState: { phase: "binary" }, baseState: undefined }),
+    { status: "binary" },
+  );
+  assert.deepEqual(
+    buildComparison({
+      selected: SELECTED,
+      wholeState: { phase: "oversized" },
+      baseState: undefined,
+    }),
+    { status: "oversized" },
+  );
 });

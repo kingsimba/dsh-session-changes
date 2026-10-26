@@ -1,6 +1,5 @@
 import {
   BASE_ROUTE,
-  DIFF_ROUTE,
   EXISTS_ROUTE,
   FILE_ROUTE,
   LIST_ROUTE,
@@ -45,21 +44,6 @@ export async function readTurns(sessionId, signal) {
   return payload !== null && typeof payload === "object" && Array.isArray(payload.turns)
     ? payload.turns
     : [];
-}
-
-/**
- * Read one review entry's served comparison.
- * @param sessionId - the viewed Session.
- * @param entry - the file's coordinates for one turn.
- * @param signal - cancellation.
- * @returns the served payload (`kind: text | binary | oversized`).
- */
-export async function readDiff(sessionId, entry, signal) {
-  return getJson(
-    DIFF_ROUTE,
-    { sessionId: String(sessionId), seq: String(entry.seq), index: String(entry.index) },
-    signal,
-  );
 }
 
 /**
@@ -109,6 +93,7 @@ export async function readWholeFile(sessionId, seq, path, signal) {
     // A path that vanished (or stopped being a file) is a deletion, not a failure.
     refusal.missing =
       reason === "read-ENOENT" || reason === "read-ENOTDIR" || reason === "not-file";
+    refusal.binary = reason === "binary";
     refusal.oversized = reason === "too-large";
     throw refusal;
   }

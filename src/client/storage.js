@@ -1,12 +1,4 @@
-import {
-  DEFAULT_LEFT,
-  LAYOUT_KEY,
-  MIN_LEFT,
-  MODE_KEY,
-  WHOLE_KEY,
-  WIDTH_KEY,
-  WRAP_KEY,
-} from "./constants.js";
+import { DEFAULT_LEFT, LAYOUT_KEY, MIN_LEFT, WIDTH_KEY, WRAP_KEY } from "./constants.js";
 
 /**
  * Read one persisted preference.
@@ -36,19 +28,9 @@ export function writeStored(key, value) {
   }
 }
 
-/** The persisted list mode: `turn` unless `overall` was chosen last time. */
-export function readMode() {
-  return readStored(MODE_KEY, "turn") === "overall" ? "overall" : "turn";
-}
-
 /** The persisted wrap preference. */
 export function readWrap() {
   return readStored(WRAP_KEY, "false") === "true";
-}
-
-/** The persisted whole-file preference. */
-export function readWhole() {
-  return readStored(WHOLE_KEY, "false") === "true";
 }
 
 /** The persisted comparison layout: `split` unless `inline` was chosen last time. */

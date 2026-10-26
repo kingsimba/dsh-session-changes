@@ -1,33 +1,8 @@
 /**
- * Group one turn's files by their folder.
- * @param files - the summary's file rows.
- * @param entryOf - builds one file's review coordinates.
- * @returns folder groups in first-seen order.
- */
-export function groupFiles(files, entryOf) {
-  const folders = [];
-  const byFolder = new Map();
-  for (let index = 0; index < files.length; index += 1) {
-    const file = files[index];
-    const segments = String(file.display).split(/[\\/]/);
-    const name = segments.pop() ?? String(file.display);
-    const folder = segments.join("/");
-    let bucket = byFolder.get(folder);
-    if (bucket === undefined) {
-      bucket = [];
-      byFolder.set(folder, bucket);
-      folders.push(folder);
-    }
-    bucket.push({ file, name, entries: [entryOf(index)] });
-  }
-  return folders.map((folder) => ({ folder, files: byFolder.get(folder) }));
-}
-
-/**
- * Fold every turn into one file list: one row per path, counts summed, and every
- * turn that touched the file kept for the stacked comparison.
+ * Fold every turn into one file list: one row per path with the counts summed, and
+ * every turn that touched the file kept for its review coordinates.
  *
- * @param turns - the Session's recorded turns, newest first.
+ * @param turns - the Session's recorded turns, oldest first.
  * @returns the folder groups and the number of distinct files.
  */
 export function groupOverall(turns) {

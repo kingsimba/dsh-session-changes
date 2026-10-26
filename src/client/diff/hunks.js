@@ -49,35 +49,3 @@ export function toHunks(ops, context) {
   hunks.push(sliceHunk(ops, start, end));
   return hunks;
 }
-
-/**
- * Undo one turn's comparison on a file's text: each hunk's new-side range is
- * replaced with its old-side lines, so the caller walks back to the state before
- * the turn.
- *
- * @param text - the file as it stood after the turn.
- * @param hunks - the turn's hunks for that file.
- * @returns the text before the turn, or null when the hunk no longer lines up.
- */
-export function reverseHunks(text, hunks) {
-  let lines = text === "" ? [] : text.split("\n");
-  let delta = 0;
-  for (const hunk of Array.isArray(hunks) ? hunks : []) {
-    const next = [];
-    const prev = [];
-    for (const line of Array.isArray(hunk.lines) ? hunk.lines : []) {
-      if (line[0] === "-") prev.push(line.slice(1));
-      else {
-        next.push(line.slice(1));
-        if (line[0] === " ") prev.push(line.slice(1));
-      }
-    }
-    const start = hunk.newStart - 1 + delta;
-    const end = start + next.length;
-    if (start < 0 || end > lines.length) return null;
-    for (let at = 0; at < next.length; at += 1) if (lines[start + at] !== next[at]) return null;
-    lines = [...lines.slice(0, start), ...prev, ...lines.slice(end)];
-    delta += prev.length - next.length;
-  }
-  return lines.join("\n");
-}

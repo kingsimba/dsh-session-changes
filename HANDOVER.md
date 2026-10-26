@@ -121,43 +121,42 @@ src/client/
 ├─ index.js               # apply / inject：注册 tab 类型、guide、字典、pane body
 ├─ changes-tab.js         # 状态与编排（唯一持有页面级 useState 的组件）
 ├─ hooks/
-│   ├─ use-changes-feed.js  # 列表 + 每轮 diff + 缓存 + 刷新计数（一次封装两个 effect）
+│   ├─ use-changes-feed.js  # 列表（turns）+ 刷新计数
+│   ├─ use-overall-counts.js # 每行 +N −M：pre-image → 当前文件（带缓存与上限）
 │   ├─ use-auto-refresh.js  # 订阅 Host 的失效流（fs.watch / session/event），debounce 1s 后刷新
 │   ├─ use-selection.js     # 选中项跟随列表重建（原 adopt 逻辑）
-│   ├─ use-whole-file.js    # .file，missing/oversized 归一成 phase
+│   ├─ use-whole-file.js    # .file，missing/binary/oversized 归一成 phase
 │   ├─ use-base.js          # .base
 │   ├─ use-exists.js        # .exists → gonePaths
 │   ├─ use-comparison.js    # buildComparison 的 memo
 │   ├─ use-view.js          # buildView 的 memo
 │   └─ use-resizable.js     # 宽度、拖拽、键盘微调、ResizeObserver
 ├─ components/
-│   ├─ list-pane.js         # 左栏：标题/统计/模式开关/状态
+│   ├─ list-pane.js         # 左栏：标题/统计/状态
 │   ├─ list-rows.js         # 文件夹标题 + 文件行
 │   ├─ file-row.js          # 一行文件（含删除线状态）
 │   ├─ counts.js            # +N −M / binary / too large
 │   ├─ right-head.js        # 右栏工具条
-│   ├─ turn-chips.js        # Turn 1 · Turn 2 … 横条
-│   ├─ detail-pane.js       # 工具条 + chips + body
-│   ├─ detail-body.js       # 该显示 pane / note / annotated 的判定
+│   ├─ detail-pane.js       # 工具条 + body
+│   ├─ detail-body.js       # 该显示 pane / note 的判定
 │   ├─ split-diff.js        # Split 布局（两条同步滚动的 lane / 换行网格）
 │   ├─ inline-diff.js       # Inline 布局（单栏）
-│   ├─ annotated.js         # 降级视图：当前文件 + 本轮改动标注
 │   ├─ diff-text.js         # 高亮文本单元格 + 网格双栏
 │   ├─ pane-note.js         # loading/error/binary/oversized 与顶部提示（两布局共用）
 │   ├─ error-boundary.js    # TabBoundary
 │   └─ tab-body.js          # 注册给 slot 的 body
 ├─ diff/
 │   ├─ lines.js             # diffLines（LCS，超预算降级 coarse）
-│   ├─ hunks.js             # sliceHunk / toHunks / reverseHunks
+│   ├─ hunks.js             # sliceHunk / toHunks
 │   ├─ rows.js              # hunkRows / splitRows / hunkLabel
 │   ├─ highlight.js         # highlightedSide
 │   └─ model.js             # 按 ROW_CAP 截断 + 编号 + 成对 + 高亮的统一模型
 ├─ locale/{en,zh,fallback}.js
-├─ api.js                 # 所有 fetch（list/diff/file/base/exists/open）
-├─ comparison.js          # 对比构建：Overall 走 .base，By turn 走 reverseHunks
-├─ grouping.js            # groupFiles / groupOverall
-├─ view.js                # buildView（含 total 汇总）
-├─ selection.js           # selectionOf / sameSelection / rowMatchesSelection / entryKey / activeEntryOf
+├─ api.js                 # 所有 fetch（list/file/base/exists/open + watch）
+├─ comparison.js          # 对比构建：pre-image → 当前文件
+├─ grouping.js            # groupOverall（按目录分组）
+├─ view.js                # buildView（turns → 单列表 + 汇总）
+├─ selection.js           # selectionOf / sameSelection / rowMatchesSelection
 ├─ storage.js             # localStorage 读写 + 各键默认值
 ├─ primitives.js          # 共享高亮器（可选，加载失败即纯文本）
 ├─ react.js               # Host 的 react + h()
