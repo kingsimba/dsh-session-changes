@@ -24,13 +24,19 @@
 > 「改动范围过大，逐行对比已降级为整块替换显示」；③ 「过大」文案只留给真的 `kind:"oversized"`（核心 2 MiB/侧），
 > `.file` 的 413 `too-large` 也映射成同一条；④ 顺手修了 ops 为空（空文件）时 `sliceHunk(ops,0,0)` 越界崩的问题。
 >
-> **2026-10-26 02:00 v0.12.0 工程化（本次）**：`lib/client.js` 从 1631 行单文件拆成 `src/client/` 下 34 个小模块，
-> 用 **rollup** 打包回 `lib/client.js`（Host 只认这一个 classic script，格式没变：`__ModuleLoader__.load` + factory），
-> 全仓 **prettier** 统一格式（含 `lib/index.js`、`styles.css`），并加了 `npm` 脚本与测试。
+> **2026-10-26 02:00 v0.12.0 工程化**：`lib/client.js` 从 1631 行单文件拆成 `src/client/` 下 46 个文件
+> （45 个 JS 模块 + 1 份 `styles.css`），用 **rollup** 打包回 `lib/client.js`（Host 只认这一个 classic script，
+> 格式没变：`__ModuleLoader__.load` + factory），全仓 **prettier** 统一格式（含 `lib/index.js`、`styles.css`），
+> 并加了 `npm` 脚本与测试。
 > **功能零改动**：用同一套 stub 把新旧 bundle 在 11 个场景（By turn/Overall × Split/Inline × Full、已删除、
 > 二进制、drift、空会话、列表失败）各渲染一遍，元素树逐字节相同；样式表按 CSS 语义比对也相同
 > （prettier 只做了 `.5px`→`0.5px`、`[a=b]`→`[a="b"]`、`content:''`→`content:""`、补分号这类等价改写）。
 > 详见 §10。
+>
+> **2026-10-26 02:16 v0.12.1 对比色再调浅**：红/绿底 `12%` → **`8%`**（rgba 回退 `.09` → `.06`），
+> 三处规则一起改（`.dsc-cell` / `.dsc-lrow` / `.dsc-urow`），覆盖 Split 网格、Split 双 lane、Inline 单栏，
+> 降级视图用的 `.dsc-lrow` 也一起变浅。2px 左侧色条、行号与 `±` 号染色保持原样，所以「哪边改了」仍一眼可见。
+> 只动 `src/client/styles.css` → `npm run build` 后强刷即可，Host 不用重挂载。
 
 ---
 
