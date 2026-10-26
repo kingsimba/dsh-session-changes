@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-10-27 docs: add a Changes page screenshot to the README
 - 2026-10-27 release: make the 0.13.1 package publishable — drop `private`, add `engines.dsh`,
   repository/homepage/keywords, an MIT LICENSE, an icon, exported locale meta, and npm/Git install
   instructions

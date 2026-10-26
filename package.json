@@ -17,7 +17,8 @@
     "README.md",
     "LICENSE",
     "icon.svg",
-    "locale/*.json"
+    "locale/*.json",
+    "docs/screenshot.png"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",

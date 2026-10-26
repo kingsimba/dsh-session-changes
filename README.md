@@ -7,6 +7,8 @@ on the right. The divider between them is draggable.
 One question, one answer: *what changed since this task started* — the file's first pre-image in this
 Session against the file as it stands now. There is no per-turn mode.
 
+![The Changes page beside the conversation](docs/screenshot.png)
+
 ## Why
 
 The built-in changed-files card lives in the transcript and scrolls away, and the Review tab it opens
