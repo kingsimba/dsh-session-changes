@@ -42,7 +42,9 @@ export const en = {
   wholeOff: "Back to the changed hunks only",
   wholeLoading: "Reading the file…",
   wholeError: "Could not read the file from the Host.",
-  overallDrift:
-    "Could not rebuild the state this comparison starts from — the file changed outside the recorded turns.",
+  overallNoBase:
+    "No pre-image was recorded for this file, so Overall has no baseline to compare against.",
+  turnDrift:
+    "Could not rebuild the file as it was before this turn — it changed outside the recorded turns.",
   resize: "Resize the file list",
 };

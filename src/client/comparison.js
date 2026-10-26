@@ -34,13 +34,16 @@ function compare(before, after) {
 /**
  * Work out what the comparison shows for the selected file.
  *
- * Overall prefers the Session's stored pre-image: an exact baseline, never
- * reconstructed. By turn walks the file back through the turns newer than the one
- * being viewed, which is the only option because just the first pre-image is kept.
+ * Overall diffs the Session's stored first pre-image against the file as it stands
+ * now, and nothing else: with no pre-image there is no baseline, so the pane says
+ * so instead of rebuilding one. By turn walks the file back through the turns newer
+ * than the one being viewed, which is the only option because just the first
+ * pre-image is kept.
  *
  * @param input - the current view state.
  * @returns the comparison, `null` while nothing is selected, or a status:
- *   `pending` (still reading), `unreadable`, `oversized`, `binary`, `drift`.
+ *   `pending` (still reading), `unreadable`, `oversized`, `no-base`, `binary`,
+ *   `drift`.
  */
 export function buildComparison({ mode, selected, diffs, wholeState, baseState, view }) {
   if (selected === null) return null;
@@ -51,14 +54,16 @@ export function buildComparison({ mode, selected, diffs, wholeState, baseState, 
   // pre-image reads as deleted, instead of claiming the file is unreadable.
   const gone = wholeState.phase === "missing";
   const current = gone ? "" : wholeState.text;
-  if (mode === "overall" && baseState !== undefined && baseState.phase === "ready") {
+  if (mode === "overall") {
+    if (baseState === undefined || baseState.phase === "loading") return { status: "pending" };
+    if (baseState.phase !== "ready") return { status: "no-base" };
     const beforeText = baseState.absent === true ? "" : baseState.text;
     return { ...compare(beforeText, current), gone };
   }
   if (gone) return { status: "ready", gone: true, hunks: [], full: [] };
   let text = current;
   const ordered = [...selected.entries].sort((a, b) => b.turn - a.turn);
-  const target = mode === "overall" || view.groups.length === 0 ? undefined : view.groups[0].turn;
+  const target = view.groups.length === 0 ? undefined : view.groups[0].turn;
   let after;
   for (const item of ordered) {
     if (target !== undefined && item.turn === target) after = text;
@@ -74,6 +79,6 @@ export function buildComparison({ mode, selected, diffs, wholeState, baseState, 
     if (back === null) return { status: "drift" };
     text = back;
   }
-  const afterText = mode === "overall" ? current : after === undefined ? current : after;
+  const afterText = after === undefined ? current : after;
   return { ...compare(text, afterText), gone: false };
 }

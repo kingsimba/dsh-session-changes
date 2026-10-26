@@ -86,7 +86,9 @@
   对比的「现在」一侧按空文本处理 → Overall 里整份前像显示为删除；payload 带 `after:false`，正文顶部出现「已删除」。
   同时 `.exists` 的结果让左侧列表把该文件**名字加删除线、字变红**（`.dsc-row[data-missing=true]`）。
   注意：记录器只知道文件工具干的事，shell `rm`/`git checkout` 删掉的文件只能靠这条 `.exists` 查出来。
-- `Overall` 的 base 取不到（404）时：`comparison` 落到 `lib/client.js` 的 `reverseHunks` 旧重建逻辑——这是**数据缺失的降级**，不是 bug。典型场景：文件在「Host 带上 capture 代码」之前就被本会话改过。
+- `Overall` 的 base 取不到（404）时：`comparison` 直接进 `no-base`，面板只显示「没有记录首次改动前的快照」。
+  **不再**回落到 `reverseHunks` 旧重建逻辑——没有基准就不出 diff，绝不拿重建结果冒充基准。
+  典型场景：文件在「Host 带上 capture 代码」之前就被本会话改过。
 - `By turn`：仍用 Host 的 per-turn hunk（`api/changes.diff`）。
 - `By turn + Full`：仍走旧的 `reverseHunks` 重建；重建失败会**降级为「当前文件 + 标注」**（`AnnotatedPane`）并显示提示，不再死路。
 
@@ -282,11 +284,11 @@ window.__ModuleLoader__.load({ id, factory: (require) => { ... } })
   打包后的 `lib/client.js`，可 `render` / `settle`（按 deps 跑 effect，跟 React 一样）。
 - `test/bundle.test.mjs`：注册结果、By turn/Overall 渲染、已删除文件、空会话、列表失败、二进制 payload。
 - `test/diff.test.mjs`：`diffLines`（含 coarse 降级）、`toHunks`、`sliceHunk`、`reverseHunks`、`splitRows`、
-  `buildComparison` 的六种状态。
+  `buildComparison` 的七种状态（含 `no-base`）。
 - `test/host.test.mjs`：桩 `ctx` + 临时工作区，验四条路由（list 折叠、file 现读/ENOENT、base 的
   原文/absent/not-captured/越界、exists 的 file/missing）。
 
-三个文件共 27 条断言，`npm test` 单进程跑完约 0.3s。
+三个文件共 30 条断言，`npm test` 单进程跑完约 0.3s。
 
 **等价性证据**：`scripts/compare-bundles.mjs <旧 bundle>` 用同一套 stub 渲染 11 个场景（By turn / Overall ×
 Split / Inline × Full、已删除、二进制、drift、空会话、列表失败），元素树（tag + 可序列化 props + 文本）

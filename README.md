@@ -65,9 +65,8 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
 * a file created during the Session has no pre-image (`absent`), so it reads as entirely added;
 * a file that is gone from the disk is compared against empty text, so it reads as entirely deleted, and
   its name is struck through in the list;
-* only when a pre-image is missing (the file was changed before this Host build started capturing them)
-  does the view fall back to walking the file back through the turns, and then it says so rather than
-  showing a plausible-looking wrong diff.
+* a file with no recorded pre-image (it was changed before this Host build started capturing them) has no
+  baseline at all, so the pane says exactly that and shows no diff — it never rebuilds one from the turns.
 
 `Full` in **By turn** still rebuilds the state just before the chosen turn with `reverseHunks`; when that
 walk no longer lines up, the pane annotates the current file and explains why, instead of dead-ending.

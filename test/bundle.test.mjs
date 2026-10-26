@@ -48,10 +48,11 @@ const LIST = {
 
 /**
  * A Host that answers the routes this tab reads.
- * @param options - `{ missing }`: paths the disk no longer has.
+ * @param options - `{ missing, baseMissing }`: paths the disk no longer has, and
+ *   whether the Host never captured a pre-image.
  * @returns the fetch stub and the calls it saw.
  */
-function host({ missing = [] } = {}) {
+function host({ missing = [], baseMissing = false } = {}) {
   const calls = [];
   const fetch = async (url) => {
     const text = String(url);
@@ -61,7 +62,10 @@ function host({ missing = [] } = {}) {
       return respond({
         paths: Object.fromEntries(missing.map((path) => [path, "missing"])),
       });
-    if (text.includes("session-changes.base")) return respond({ text: "old line" });
+    if (text.includes("session-changes.base"))
+      return baseMissing
+        ? { ok: false, status: 404, json: async () => ({ error: "not-captured" }) }
+        : respond({ text: "old line" });
     if (text.includes("session-changes.file")) {
       if (missing.some((path) => text.includes(encodeURIComponent(path)))) {
         return { ok: false, status: 404, json: async () => ({ error: "read-ENOENT" }) };
@@ -136,6 +140,21 @@ test("Overall compares the stored pre-image against the current file", async () 
   assert.equal(withClass(tree, "dsc-chip").length, 0);
   assert.equal(withClass(tree, "dsc-lrow").length >= 2, true);
   assert.equal(withClass(tree, "dsc-note").length, 0);
+});
+
+test("Overall says so instead of rebuilding a pre-image the Host never captured", async () => {
+  const { fetch } = host({ baseMissing: true });
+  const harness = createHarness({
+    fetch,
+    storage: new Map([["dsh-session-changes.mode", "overall"]]),
+  });
+  const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  // No baseline is served, so the pane names that instead of drawing a diff
+  // rebuilt from the recorded turns.
+  assert.match(textOf(tree), /No pre-image was recorded/);
+  assert.equal(withClass(tree, "dsc-lane").length, 0);
+  assert.equal(withClass(tree, "dsc-lrow").length, 0);
 });
 
 test("a deleted file is marked in the list and compared as empty", async () => {

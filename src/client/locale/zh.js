@@ -42,6 +42,7 @@ export const zh = {
   wholeOff: "只看改动的片段",
   wholeLoading: "正在读取文件…",
   wholeError: "无法从 Host 读取该文件。",
-  overallDrift: "无法还原该对比的起点——这个文件在会话之外被改动过。",
+  overallNoBase: "这个文件没有记录首次改动前的快照，「全部」视图没有可比对的起点。",
+  turnDrift: "无法还原这一轮之前的文件状态——它在会话记录之外被改动过。",
   resize: "调整文件列表宽度",
 };

@@ -8,8 +8,8 @@ const HIGHLIGHT_LINE_CAP = 20000;
 /**
  * Never-fail whole-file view: the current text, with the turn's additions marked in
  * place and its deletions drawn where they were removed. It is an annotation, not a
- * historical diff, and it is what the comparison falls back to when the baseline
- * cannot be rebuilt.
+ * historical diff, and it is what By turn + Full falls back to when the walk back
+ * through the turns no longer lines up.
  *
  * @param props - `{ text, hunks, path, wrap, layout, t, onScrollLeft, onScrollRight }`.
  */

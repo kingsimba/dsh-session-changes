@@ -6,8 +6,8 @@ import { SplitDiff } from "./split-diff.js";
 
 /**
  * What the comparison area shows: the pane for the served payload, a note while
- * something is missing, or the annotated fallback when the baseline cannot be
- * rebuilt.
+ * something is missing, or the annotated fallback when the by-turn reconstruction
+ * cannot be rebuilt.
  *
  * @param props - the current selection, the computed comparison and its sources.
  */
@@ -39,9 +39,10 @@ export function DetailBody({
     else if (comparison.status === "unreadable") note = t("wholeError");
     else if (comparison.status === "binary") note = t("diffBinary");
     else if (comparison.status === "oversized") note = t("diffOversized");
+    else if (comparison.status === "no-base") note = t("overallNoBase");
     else if (comparison.status === "drift") {
-      // Reconstruction failed: annotate the current file instead of dead-ending.
-      banner = t("overallDrift");
+      // By-turn reconstruction failed: annotate the current file instead of dead-ending.
+      banner = t("turnDrift");
       if (wholeState === undefined || wholeState.phase !== "ready") note = t("loading");
       else
         annotate = {

@@ -174,6 +174,43 @@ test("buildComparison reads a deleted path as an empty new side", () => {
   );
 });
 
+test("buildComparison reports no-base instead of rebuilding one from the turns", () => {
+  const comparison = buildComparison({
+    mode: "overall",
+    selected: { path: "a.js", entries: [{ seq: 5, index: 0, turn: 2 }] },
+    diffs: {
+      "5:0": {
+        phase: "ready",
+        data: {
+          kind: "text",
+          path: "a.js",
+          before: true,
+          after: true,
+          hunks: [
+            { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-gone", "+kept"] },
+          ],
+        },
+      },
+    },
+    wholeState: { phase: "ready", text: "kept" },
+    baseState: { phase: "error" },
+    view: { groups: [] },
+  });
+  assert.deepEqual(comparison, { status: "no-base" });
+});
+
+test("buildComparison waits for the pre-image read in Overall", () => {
+  const comparison = buildComparison({
+    mode: "overall",
+    selected: { path: "a.js", entries: [{ seq: 3, index: 0, turn: 1 }] },
+    diffs: {},
+    wholeState: { phase: "ready", text: "one" },
+    baseState: { phase: "loading" },
+    view: { groups: [] },
+  });
+  assert.deepEqual(comparison, { status: "pending" });
+});
+
 test("buildComparison reports drift when a turn no longer lines up", () => {
   const comparison = buildComparison({
     mode: "turn",
