@@ -2,23 +2,11 @@ import { h } from "../react.js";
 import { Counts } from "./counts.js";
 
 /**
- * The comparison toolbar: name, counts, and the layout / open / wrap / review
- * buttons.
+ * The comparison toolbar: name, counts, and the layout / wrap buttons.
  *
  * @param props - the selected file plus the actions the buttons run.
  */
-export function RightHead({
-  t,
-  selected,
-  layout,
-  wrap,
-  opening,
-  openFailed,
-  onToggleLayout,
-  onOpenFile,
-  onToggleWrap,
-  onOpenReview,
-}) {
+export function RightHead({ t, selected, layout, wrap, onToggleLayout, onToggleWrap }) {
   return h("div", { className: "dsc-dhead", key: "h" }, [
     h(
       "span",
@@ -57,21 +45,6 @@ export function RightHead({
           {
             type: "button",
             className: "dsc-btn",
-            key: "e",
-            title: openFailed === true ? t("openAppFailed") : t("openApp"),
-            "aria-label": t("openApp"),
-            disabled: opening,
-            onClick: onOpenFile,
-          },
-          "⤴",
-        ),
-    selected === null
-      ? null
-      : h(
-          "button",
-          {
-            type: "button",
-            className: "dsc-btn",
             key: "w",
             title: wrap === true ? t("wrapOff") : t("wrapOn"),
             "aria-label": wrap === true ? t("wrapOff") : t("wrapOn"),
@@ -79,20 +52,6 @@ export function RightHead({
             onClick: onToggleWrap,
           },
           "↵",
-        ),
-    selected === null
-      ? null
-      : h(
-          "button",
-          {
-            type: "button",
-            className: "dsc-btn",
-            key: "o",
-            title: t("review"),
-            "aria-label": t("review"),
-            onClick: onOpenReview,
-          },
-          "↗",
         ),
   ]);
 }

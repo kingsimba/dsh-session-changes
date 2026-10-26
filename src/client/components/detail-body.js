@@ -8,9 +8,8 @@ import { SplitDiff } from "./split-diff.js";
  *
  * @param props - the current selection, the computed comparison and its sources.
  */
-export function DetailBody({ t, selected, activeEntry, layout, wrap, comparison, baseState }) {
-  if (selected === null || activeEntry === undefined)
-    return h("div", { className: "dsc-note" }, t("pick"));
+export function DetailBody({ t, selected, layout, wrap, comparison, baseState }) {
+  if (selected === null) return h("div", { className: "dsc-note" }, t("pick"));
 
   let note = null;
   let payloadState;

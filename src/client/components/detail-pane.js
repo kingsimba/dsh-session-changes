@@ -5,9 +5,8 @@ import { RightHead } from "./right-head.js";
 /**
  * The comparison pane: toolbar and body.
  *
- * @param props - the toolbar and body inputs: `selected`, `activeEntry`, `layout`,
- *   `wrap`, `opening`, `openFailed`, `comparison`, `baseState`, `wholeState`,
- *   `onRetry`, and the toolbar callbacks.
+ * @param props - `{ t, selected, layout, wrap, comparison, baseState, onToggleLayout,
+ *   onToggleWrap }`.
  */
 export function DetailPane(props) {
   return h("div", { className: "dsc-pane dsc-right", key: "r" }, [

@@ -3,11 +3,11 @@ import { h } from "../react.js";
 /**
  * The master list: title, session totals, and the rows.
  *
- * @param props - `{ t, state, view, rows, busy, left, reverted, onRefresh }`, where
+ * @param props - `{ t, state, totals, rows, busy, left, reverted, onRefresh }`, where
  *   `reverted` says the empty list means "every change was undone", not "nothing
  *   was ever recorded".
  */
-export function ListPane({ t, state, view, rows, busy, left, reverted, onRefresh }) {
+export function ListPane({ t, state, totals, rows, busy, left, reverted, onRefresh }) {
   let listBody;
   if (state.phase === "loading") listBody = h("div", { className: "dsc-note" }, t("loading"));
   else if (state.phase === "error")
@@ -29,11 +29,11 @@ export function ListPane({ t, state, view, rows, busy, left, reverted, onRefresh
     [
       h("div", { className: "dsc-head", key: "h" }, [
         h("span", { className: "dsc-title", key: "t" }, t("title")),
-        state.turns.length === 0
+        state.files.length === 0
           ? null
           : h("span", { className: "dsc-stat", key: "s" }, [
-              h("span", { className: "dsc-add", key: "a" }, "+" + String(view.added)),
-              h("span", { className: "dsc-del", key: "d" }, "−" + String(view.deleted)),
+              h("span", { className: "dsc-add", key: "a" }, "+" + String(totals.added)),
+              h("span", { className: "dsc-del", key: "d" }, "−" + String(totals.deleted)),
             ]),
         h(
           "button",

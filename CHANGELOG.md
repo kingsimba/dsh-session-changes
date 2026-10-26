@@ -1,5 +1,8 @@
 # Changelog
 
+- 2026-10-27 store: the list now comes from the plugin's own pre-image store instead of the recorder's
+  per-turn summaries — it survives a restart, gains a new file as soon as its pre-image is captured, and
+  no longer depends on `workspaceChanges` / `session/event`
 - 2026-10-27 simplify: drop the By-turn mode, its turn strip and the Full/hunks switch — the page always
   diffs the Session's first pre-image against the file as it stands now
 - 2026-10-27 auto refresh: the Host streams a frame per listed-file change and per committed

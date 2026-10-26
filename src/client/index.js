@@ -11,7 +11,6 @@ import { TabBody } from "./components/tab-body.js";
 import { KIND, NS, TYPE_ID } from "./constants.js";
 import { en } from "./locale/en.js";
 import { zh } from "./locale/zh.js";
-import { setResourceOpener } from "./open-resource.js";
 import { h } from "./react.js";
 // Injects this package's stylesheet once, at load: the tab system may mount the
 // body long after the bundle was evaluated.
@@ -43,7 +42,6 @@ function guideIcon() {
  */
 export function apply(ctx) {
   const t = ctx.locale.bind(NS);
-  setResourceOpener((address, options) => ctx.sidebarRight.openResource(address, options));
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), "session-changes: dictionaries");
   ctx.effect(
     () =>

@@ -110,7 +110,7 @@ plugins/dsh-session-changes/
 ├─ .prettierignore       # 跳过生成物 lib/client.js 与 *.md
 ├─ scripts/build.mjs     # rollup：src/client → lib/client.js，带 --check
 ├─ src/client/           # 浏览器端源码（拆分后的真身，见下）
-├─ lib/index.js          # Host：五条路由（含 watch 失效流）+ 首次改动前备份 + 清理（已格式化，无构建步骤）
+├─ lib/index.js          # Host：四条路由 + 前像存储（list/file/base/watch，无 recorder 依赖，无构建步骤）
 ├─ lib/client.js         # 【生成物】rollup 打包结果，别手改
 ├─ test/                 # harness + diff/bundle 测试（node --test）
 └─ profile/              # 快照：~/.dsh/profiles/desktop 的 cordis.patch.yml 与 package.json
@@ -121,15 +121,13 @@ src/client/
 ├─ index.js               # apply / inject：注册 tab 类型、guide、字典、pane body
 ├─ changes-tab.js         # 状态与编排（唯一持有页面级 useState 的组件）
 ├─ hooks/
-│   ├─ use-changes-feed.js  # 列表（turns）+ 刷新计数
-│   ├─ use-overall-counts.js # 每行 +N −M：pre-image → 当前文件（带缓存与上限）
-│   ├─ use-auto-refresh.js  # 订阅 Host 的失效流（fs.watch / session/event），debounce 1s 后刷新
-│   ├─ use-selection.js     # 选中项跟随列表重建（原 adopt 逻辑）
+│   ├─ use-file-list.js     # list（前像存储的索引）+ 刷新计数
+│   ├─ use-file-counts.js   # 每行 +N −M：pre-image → 当前文件（带缓存与上限，标 missing/binary/oversized）
+│   ├─ use-auto-refresh.js  # 订阅 Host 的失效流（fs.watch / 捕获通知），debounce 1s 后刷新
+│   ├─ use-selection.js     # 选中项跟随列表重建（按 path）
 │   ├─ use-whole-file.js    # .file，missing/binary/oversized 归一成 phase
 │   ├─ use-base.js          # .base
-│   ├─ use-exists.js        # .exists → gonePaths
 │   ├─ use-comparison.js    # buildComparison 的 memo
-│   ├─ use-view.js          # buildView 的 memo
 │   └─ use-resizable.js     # 宽度、拖拽、键盘微调、ResizeObserver
 ├─ components/
 │   ├─ list-pane.js         # 左栏：标题/统计/状态
@@ -152,9 +150,9 @@ src/client/
 │   ├─ highlight.js         # highlightedSide
 │   └─ model.js             # 按 ROW_CAP 截断 + 编号 + 成对 + 高亮的统一模型
 ├─ locale/{en,zh,fallback}.js
-├─ api.js                 # 所有 fetch（list/file/base/exists/open + watch）
+├─ api.js                 # 所有 fetch（list/file/base + watch）
 ├─ comparison.js          # 对比构建：pre-image → 当前文件
-├─ grouping.js            # groupOverall（按目录分组）
+├─ grouping.js            # groupFiles（按目录分组）
 ├─ view.js                # buildView（turns → 单列表 + 汇总）
 ├─ selection.js           # selectionOf / sameSelection / rowMatchesSelection
 ├─ storage.js             # localStorage 读写 + 各键默认值

@@ -9,18 +9,18 @@ import { react } from "../react.js";
  * comparison reads as "deleted" rather than "unreadable"; a binary or oversized
  * file gets its own phase so the pane can say so.
  *
- * @param input - `{ sessionId, selected, entry, nonce }`.
+ * @param input - `{ sessionId, path, nonce }`.
  * @returns the whole-file state, or undefined before anything was read.
  */
-export function useWholeFile({ sessionId, selected, entry, nonce }) {
+export function useWholeFile({ sessionId, path, nonce }) {
   const [state, setState] = react.useState(undefined);
   react.useEffect(() => {
-    if (selected === null || entry === undefined) return undefined;
+    if (path === null) return undefined;
     if (typeof sessionId !== "string" || sessionId === "") return undefined;
     let live = true;
     const controller = new AbortController();
     setState({ phase: "loading" });
-    readWholeFile(sessionId, entry.seq, selected.path, controller.signal)
+    readWholeFile(sessionId, path, controller.signal)
       .then((text) => {
         if (live) setState({ phase: "ready", text });
       })
@@ -39,6 +39,6 @@ export function useWholeFile({ sessionId, selected, entry, nonce }) {
       live = false;
       controller.abort();
     };
-  }, [selected, entry, sessionId, nonce]);
+  }, [sessionId, path, nonce]);
   return state;
 }

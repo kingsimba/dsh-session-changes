@@ -1,5 +1,5 @@
 /**
- * The built bundle, rendered with a stubbed Host: registration, the folded list, the
+ * The built bundle, rendered with a stubbed Host: registration, the list, the
  * comparison, a deleted file, and a binary one. These are the checks that would have
  * caught a broken refactor of the shipped artifact.
  */
@@ -8,20 +8,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHarness, elementsOf, refuse, respond, textOf } from "./support/harness.mjs";
 
-/** The list payload: one turn, two files. */
-const LIST = {
-  turns: [
-    {
-      turn: 1,
-      seq: 7,
-      total: 2,
-      added: 2,
-      deleted: 1,
-      files: [
-        { path: "src/app.js", display: "src/app.js", added: 1, deleted: 1 },
-        { path: "notes.md", display: "notes.md", added: 1, deleted: 0 },
-      ],
-    },
+/** The list payload: the two files the Session touched. */
+const FILES = {
+  files: [
+    { path: "src/app.js", display: "src/app.js" },
+    { path: "notes.md", display: "notes.md" },
   ],
 };
 
@@ -35,11 +26,7 @@ function host({ missing = [], baseMissing = false, binary = false } = {}) {
   const fetch = async (url) => {
     const text = String(url);
     calls.push(text);
-    if (text.includes("session-changes.list")) return respond(LIST);
-    if (text.includes("session-changes.exists"))
-      return respond({
-        paths: Object.fromEntries(missing.map((path) => [path, "missing"])),
-      });
+    if (text.includes("session-changes.list")) return respond(FILES);
     if (text.includes("session-changes.base"))
       return baseMissing
         ? { ok: false, status: 404, json: async () => ({ error: "not-captured" }) }
@@ -79,7 +66,7 @@ test("apply registers the tab type, both dictionaries, and the pane body", () =>
   assert.deepEqual(harness.client.inject, ["slots", "locale", "sidebarRightTabs", "sidebarRight"]);
 });
 
-test("the list folds every turn into one row per file and diffs the pre-image", async () => {
+test("the list shows the touched files and diffs the pre-image", async () => {
   const { fetch } = host();
   const harness = createHarness({ fetch });
   harness.render({ sessionId: "session-1", tab: { visible: true } });
@@ -92,16 +79,15 @@ test("the list folds every turn into one row per file and diffs the pre-image", 
   assert.equal(rows[1].props["data-selected"], "false");
   // `src/app.js` and `notes.md` land in two folders.
   assert.equal(withClass(tree, "dsc-folder").length, 2);
-  // There is no per-turn strip any more: one list, one comparison.
+  // One list, one comparison.
   assert.equal(withClass(tree, "dsc-chip").length, 0);
-  // The comparison drew the hunk, both lanes, from the stored pre-image.
   assert.equal(withClass(tree, "dsc-lane").length, 2);
   assert.equal(withClass(tree, "dsc-lrow").length >= 2, true);
   assert.match(textOf(tree), /old line/);
   assert.match(textOf(tree), /new line/);
 });
 
-test("the header totals follow the rows that were kept", async () => {
+test("the header totals follow the rows", async () => {
   const { fetch } = host();
   const harness = createHarness({ fetch });
   const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
@@ -115,8 +101,7 @@ test("a file edited back to its pre-image drops out instead of reading +0 −0",
   const harness = createHarness({
     fetch: async (url) => {
       const text = String(url);
-      if (text.includes("session-changes.list")) return respond(LIST);
-      if (text.includes("session-changes.exists")) return respond({ paths: {} });
+      if (text.includes("session-changes.list")) return respond(FILES);
       if (text.includes("session-changes.base")) return respond({ text: "same text" });
       if (text.includes("session-changes.file")) return respond({ text: "same text" });
       return refuse();
@@ -153,7 +138,7 @@ test("a deleted file is marked in the list and compared as empty", async () => {
 });
 
 test("an empty Session shows the empty note instead of a list", async () => {
-  const harness = createHarness({ fetch: async () => respond({ turns: [] }) });
+  const harness = createHarness({ fetch: async () => respond({ files: [] }) });
   const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
 
   assert.equal(withClass(tree, "dsc-row").length, 0);

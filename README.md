@@ -48,9 +48,9 @@ page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**,
 * **↗** opens the same file in the built-in **Review** tab, if you want the full-width view.
 * Selections survive a refresh of the list; **↻** re-reads both the list and the comparison.
 * **The list and the open comparison keep themselves current.** While the tab is visible, the Host
-  streams one frame whenever a listed file changes on disk, and one when the Session's recorder commits
-  a turn; the tab waits **1 s** for the burst to settle, then re-reads both. No polling. **↻** stays for
-  a manual re-read; hiding the tab closes the stream.
+  streams one frame whenever a listed file changes on disk, and one whenever it captures a new
+  pre-image; the tab waits **1 s** for the burst to settle, then re-reads both. No polling. **↻** stays
+  for a manual re-read; hiding the tab closes the stream.
 
 ## What it shows
 
@@ -106,18 +106,17 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
 
 ## What it reads
 
-* Host half (`lib/index.js`): five authenticated GET routes — `api/session-changes.list` (the turn list,
-  joined with the recorder's live summaries, **keeping only files the Session's file tools actually
-  changed**: a file with no captured pre-image is a build artifact or an outside edit the recorder saw
-  through git, not something this page can compare), `api/session-changes.file` (a file's current text),
-  `api/session-changes.base` (its first pre-image, or `{ absent: true }`), `api/session-changes.exists`
-  (which listed paths are still on disk) and `api/session-changes.watch` (a newline-delimited stream of
-  `ready` / `file` / `turn` / `ping` frames; it observes the listed files through `fs.watch` and the next
-  `workspace/changes` append through `session/event`). It also copies a file's pre-image on the first
-  `fs/write-intent` / `fs/edit-intent` of each path.
+* Host half (`lib/index.js`): the plugin's **own store** under `<workspace>/.dsh/session-changes/` is the
+  only source. It copies a file's whole text just before the first `fs/write-intent` / `fs/edit-intent`
+  that touches it (or writes an `.absent` marker for a path that did not exist yet), and serves four
+  authenticated GET routes: `api/session-changes.list` (the store's index — which files this Session's
+  file tools touched), `api/session-changes.file` (a file's current text, refusing binary and oversized
+  ones), `api/session-changes.base` (its stored pre-image, or `{ absent: true }`) and
+  `api/session-changes.watch` (a newline-delimited stream of `ready` / `file` / `added` / `ping` frames;
+  it observes the listed files through `fs.watch`). No per-turn summary is involved.
 * Browser half (`src/client/`): a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body.
-  It folds the recorded turns into one list, diffs the pre-image against the current text with its own
-  diff engine, and never calls `api/changes.diff`.
+  It fetches the list, reads one pre-image and one current text per row to number it, and diffs the
+  selected file with its own diff engine; it never calls `api/changes.diff`.
 
 ## Development
 
@@ -154,16 +153,13 @@ re-enable it on its Plugins page.
 
 ## Known limits
 
-These are inherited from the recorder, not this plugin:
-
-* Summaries live only as long as the Session in the running Host process. After an app restart, older
-  turns have no comparison and therefore drop out of this list.
-* Outside a git work tree the recorder lists **file-tool edits only** — files written by shell commands
-  in a non-repository workspace are not listed.
-* The list is per Session; it is not a git working-tree view and does not show uncommitted changes
-  made outside the agent.
-* Only files the Session's **file tools** changed are listed. In a git work tree the recorder also sees
-  whatever a shell command wrote (a `npm run build` bundle, a lockfile), but those have no pre-image, so
-  they are filtered out instead of appearing as undiffable rows.
-* The watch follows the files the list already shows, so a brand-new file appears when its turn commits,
-  not the moment it is created.
+* The list is per Session, from the plugin's own store. It survives an app restart (the store is on
+  disk) but only covers files the Session's **file tools** wrote — a file changed only by a shell
+  command was never captured, so it is not listed in either world.
+* Outside a git work tree the recorder used to list file-tool edits only; this page no longer reads the
+  recorder at all, so the rule is the same everywhere: the file tools' pre-images are the list.
+* The list is not a git working-tree view and does not show uncommitted changes made outside the agent.
+* Stores are kept when a Session is disposed, so a reopened Session still lists its files; nothing prunes
+  old stores automatically (they live under `.dsh/`, which `git` ignores).
+* The watch follows the files the list already shows, so a brand-new file appears as soon as its
+  pre-image is captured — before its turn closes — not the instant it is created on disk.

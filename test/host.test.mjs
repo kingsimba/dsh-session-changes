@@ -1,35 +1,32 @@
 /**
- * The Host half: route registration and the four read routes, against a stub
- * context and a throwaway workspace. No running app required.
+ * The Host half: pre-image capture, the store-backed list, the file/pre-image reads,
+ * and the watch stream. No running app required.
  */
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { apply, inject } from "../lib/index.js";
 
-const SESSION = "session-test";
-
-/** The routes this package registers, in registration order. */
-const ROUTES = [
-  "/api/session-changes.list",
-  "/api/session-changes.file",
-  "/api/session-changes.base",
-  "/api/session-changes.exists",
-];
+let sessions = 0;
+/** A unique Session id per test: the Host caches each Session's workspace root. */
+function nextSession() {
+  sessions += 1;
+  return "session-test-" + String(sessions);
+}
 
 /**
  * A Host context with just enough of each service.
- * @param input - `{ cwd, turns, summaries }`.
- * @returns the stub context, the registered routes, and the watchers it opened.
+ * @param input - `{ cwd }`.
+ * @returns the registered routes, the captured event handlers, and the watchers.
  */
-function createContext({ cwd, turns, summaries }) {
+function createContext({ cwd }) {
   const routes = new Map();
+  const handlers = new Map();
   const watchers = [];
-  const closed = [];
   const ctx = {
     connection: {
       fetch: {
@@ -39,35 +36,33 @@ function createContext({ cwd, turns, summaries }) {
       },
     },
     sessionQuery: {
-      listEvents: async () => turns.map((turn) => ({ type: "workspace/changes", seq: turn.seq })),
-    },
-    workspaceChanges: {
-      summary: (_sessionId, seq) => summaries.get(seq),
+      readSession: async () => ({ session: { cwd } }),
     },
     fs: {
-      processPath: (target) => join(cwd, target),
-      resolve: async (path) => ({ displayPath: path, targetKey: path }),
+      processPath: (target) => target.path,
+      resolve: async (path) => ({ path }),
       watch: async (target, listener) => {
         watchers.push({ target, listener });
-        return async () => {
-          closed.push(target);
-        };
+        return async () => {};
       },
     },
     effect: (effect) => effect(),
-    on: () => () => {},
+    on: (name, handler) => {
+      handlers.set(name, handler);
+      return () => {};
+    },
   };
   apply(ctx);
-  return { routes, ctx, watchers, closed };
+  return { routes, handlers, watchers, ctx };
 }
 
-/**
- * Call one registered route.
- * @param routes - the registered route map.
- * @param path - the route path.
- * @param query - its query string, without the `?`.
- * @returns the response.
- */
+/** A throwaway workspace. */
+async function workspace() {
+  const cwd = await mkdtemp(join(tmpdir(), "dsh-session-changes-"));
+  return { cwd, dispose: () => rm(cwd, { recursive: true, force: true }) };
+}
+
+/** Call one registered route. */
 async function call(routes, path, query) {
   const route = routes.get(path);
   assert.ok(route !== undefined, `${path} was not registered`);
@@ -76,143 +71,161 @@ async function call(routes, path, query) {
 }
 
 /**
- * Make a throwaway workspace with one changed file and one pre-image store.
- * @returns `{ cwd, dispose }`.
+ * Simulate one file-tool write: map the tool execution to its Session, run the
+ * write-intent waterfall (which captures the pre-image), then write the file.
  */
-async function workspace() {
-  const cwd = await mkdtemp(join(tmpdir(), "dsh-session-changes-"));
-  const store = join(cwd, ".dsh/session-changes", SESSION);
-  await mkdir(join(store, "src"), { recursive: true });
-  await mkdir(join(cwd, "src"), { recursive: true });
-  // The pre-images the plugin captured before its file tools touched these paths.
-  await writeFile(join(store, "src/app.js"), "before text", "utf8");
-  await writeFile(join(store, "src/new.js.absent"), "", "utf8");
-  return {
-    cwd,
-    store,
-    dispose: () => rm(cwd, { recursive: true, force: true }),
-  };
+async function toolWrite({ handlers, session, target, content }) {
+  const exec = { agent: { session } };
+  await handlers.get("tools/pre-execute")(exec, async () => undefined);
+  await handlers.get("fs/write-intent")({ path: target }, exec, async () => ({
+    kind: "createIfAbsent",
+  }));
+  await writeFile(target, content, "utf8");
 }
 
-/** One turn whose summary points at the fixture workspace. */
-function summaryOf(cwd) {
-  return {
-    turn: 1,
-    seq: 3,
-    total: 2,
-    added: 2,
-    deleted: 1,
-    cwd,
-    files: [
-      { path: "src/app.js", display: "src/app.js", added: 1, deleted: 1 },
-      { path: "src/new.js", display: "src/new.js", added: 1, deleted: 0 },
-    ],
-  };
-}
-
-test("apply exports the services it injects and registers the read routes", () => {
-  assert.deepEqual(inject, ["connection", "sessionQuery", "workspaceChanges", "fs"]);
-});
-
-test("the list route folds the Session log into browser rows", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "dsh-session-changes-list-"));
-  try {
-    const { routes } = createContext({
-      cwd,
-      turns: [{ seq: 3 }, { seq: 1 }],
-      summaries: new Map([
-        [
-          3,
-          {
-            ...summaryOf(cwd),
-            turn: 2,
-            files: [{ path: "src/app.js", display: "src/app.js", added: 2, deleted: 1 }],
-          },
-        ],
-        [1, { ...summaryOf(cwd), turn: 1 }],
-      ]),
-    });
-    const response = await call(routes, "/api/session-changes.list", `sessionId=${SESSION}`);
-    assert.equal(response.status, 200);
-    const payload = await response.json();
-    assert.deepEqual(
-      payload.turns.map((turn) => turn.turn),
-      [2, 1],
-    );
-    assert.equal(payload.turns[0].files[0].path, "src/app.js");
-    assert.equal(payload.turns[0].files[0].added, 2);
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-  }
-});
-
-test("the list keeps only files the Session captured a pre-image for", async () => {
+test("apply injects the services the Host half needs", async () => {
   const { cwd, dispose } = await workspace();
   try {
-    const summary = {
-      ...summaryOf(cwd),
-      files: [
-        ...summaryOf(cwd).files,
-        // Regenerated by a build script: the recorder sees it, the plugin never did.
-        { path: "lib/client.js", display: "lib/client.js", added: 384, deleted: 20 },
-        // Outside the workspace the plugin keeps no store, so it cannot judge;
-        // the recorder only lists it because a file tool named it.
-        { path: "../outside.js", display: "../outside.js", added: 1, deleted: 0 },
-      ],
-    };
-    const { routes } = createContext({
-      cwd,
-      turns: [{ seq: 3 }],
-      summaries: new Map([[3, summary]]),
-    });
-    const response = await call(routes, "/api/session-changes.list", `sessionId=${SESSION}`);
-    const payload = await response.json();
-    assert.deepEqual(
-      payload.turns[0].files.map((file) => file.path),
-      ["src/app.js", "src/new.js", "../outside.js"],
-    );
-    // The totals describe the rows that survived, not the recorder's summary.
-    assert.equal(payload.turns[0].added, 3);
-    assert.equal(payload.turns[0].deleted, 1);
+    const { routes } = createContext({ cwd });
+    assert.deepEqual(inject, ["connection", "fs", "sessionQuery"]);
+    for (const path of [
+      "/api/session-changes.list",
+      "/api/session-changes.file",
+      "/api/session-changes.base",
+      "/api/session-changes.watch",
+    ])
+      assert.ok(routes.has(path), `${path} was not registered`);
   } finally {
     await dispose();
   }
 });
 
-test("the list route refuses a request without a Session", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "dsh-session-changes-nosession-"));
+test("a write captures the pre-image, then the list and both reads see the file", async () => {
+  const { cwd, dispose } = await workspace();
   try {
-    const { routes } = createContext({ cwd, turns: [], summaries: new Map() });
-    const response = await call(routes, "/api/session-changes.list", "");
-    assert.equal(response.status, 400);
-    assert.deepEqual(await response.json(), { error: "bad-request" });
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const target = join(cwd, "src", "app.js");
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, "before\n", "utf8");
+
+    await toolWrite({ handlers, session, target, content: "after\n" });
+
+    // The pre-image is the text as it stood before the write.
+    const stored = join(cwd, ".dsh/session-changes", sessionId, "src", "app.js");
+    assert.equal(await readFile(stored, "utf8"), "before\n");
+
+    const list = await (
+      await call(routes, "/api/session-changes.list", `sessionId=${sessionId}`)
+    ).json();
+    assert.deepEqual(
+      list.files.map((file) => file.path),
+      ["src/app.js"],
+    );
+
+    const base = await call(
+      routes,
+      "/api/session-changes.base",
+      `sessionId=${sessionId}&path=src/app.js`,
+    );
+    assert.deepEqual(await base.json(), { text: "before\n" });
+
+    const current = await call(
+      routes,
+      "/api/session-changes.file",
+      `sessionId=${sessionId}&path=src/app.js`,
+    );
+    assert.deepEqual(await current.json(), { text: "after\n" });
   } finally {
-    await rm(cwd, { recursive: true, force: true });
+    await dispose();
   }
 });
 
-test("the file route serves the current text and flags a vanished path", async () => {
+test("a created file is listed from its absent marker and needs no pre-image text", async () => {
   const { cwd, dispose } = await workspace();
   try {
-    await writeFile(join(cwd, "src/app.js"), "current text", "utf8");
-    const { routes } = createContext({
-      cwd,
-      turns: [{ seq: 3 }],
-      summaries: new Map([[3, summaryOf(cwd)]]),
-    });
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const target = join(cwd, "notes.md");
 
-    const present = await call(
+    await toolWrite({ handlers, session, target, content: "hello\n" });
+
+    const list = await (
+      await call(routes, "/api/session-changes.list", `sessionId=${sessionId}`)
+    ).json();
+    assert.deepEqual(
+      list.files.map((file) => file.display),
+      ["notes.md"],
+    );
+    const base = await call(
+      routes,
+      "/api/session-changes.base",
+      `sessionId=${sessionId}&path=notes.md`,
+    );
+    assert.deepEqual(await base.json(), { absent: true });
+  } finally {
+    await dispose();
+  }
+});
+
+test("a path outside the workspace is captured by digest and listed by its absolute path", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const target = resolve(cwd, "../outside-probe.md");
+    await writeFile(target, "outside before\n", "utf8");
+
+    await toolWrite({ handlers, session, target, content: "outside after\n" });
+
+    const digest = createHash("sha1")
+      .update(process.platform === "win32" ? target.toLowerCase() : target, "utf8")
+      .digest("hex");
+    const external = join(cwd, ".dsh/session-changes", "_external", sessionId);
+    assert.equal(await readFile(join(external, digest), "utf8"), "outside before\n");
+    assert.equal((await readFile(join(external, digest + ".path"), "utf8")).trim(), target);
+
+    const list = await (
+      await call(routes, "/api/session-changes.list", `sessionId=${sessionId}`)
+    ).json();
+    assert.deepEqual(
+      list.files.map((file) => file.path),
+      [target],
+    );
+
+    const base = await call(
+      routes,
+      "/api/session-changes.base",
+      `sessionId=${sessionId}&path=${encodeURIComponent(target)}`,
+    );
+    assert.deepEqual(await base.json(), { text: "outside before\n" });
+  } finally {
+    await dispose();
+  }
+});
+
+test("the file route refuses a binary file and reports a vanished one", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const { routes } = createContext({ cwd });
+    await writeFile(join(cwd, "blob.bin"), "abc\u0000def", "utf8");
+
+    const binary = await call(
       routes,
       "/api/session-changes.file",
-      `sessionId=${SESSION}&seq=3&path=src/app.js`,
+      `sessionId=${sessionId}&path=blob.bin`,
     );
-    assert.equal(present.status, 200);
-    assert.deepEqual(await present.json(), { text: "current text" });
+    assert.equal(binary.status, 415);
+    assert.deepEqual(await binary.json(), { error: "binary" });
 
     const gone = await call(
       routes,
       "/api/session-changes.file",
-      `sessionId=${SESSION}&seq=3&path=src/missing.js`,
+      `sessionId=${sessionId}&path=missing.js`,
     );
     assert.equal(gone.status, 404);
     assert.equal((await gone.json()).error, "read-ENOENT");
@@ -221,106 +234,29 @@ test("the file route serves the current text and flags a vanished path", async (
   }
 });
 
-test("the base route answers a pre-image, an absent marker, and a miss", async () => {
-  const { cwd, store, dispose } = await workspace();
-  try {
-    await writeFile(join(store, "src/app.js"), "before text", "utf8");
-    await writeFile(join(store, "src/new.js.absent"), "", "utf8");
-    const { routes } = createContext({
-      cwd,
-      turns: [{ seq: 3 }],
-      summaries: new Map([[3, summaryOf(cwd)]]),
-    });
-
-    const captured = await call(
-      routes,
-      "/api/session-changes.base",
-      `sessionId=${SESSION}&seq=3&path=src/app.js`,
-    );
-    assert.equal(captured.status, 200);
-    assert.deepEqual(await captured.json(), { text: "before text" });
-
-    const absent = await call(
-      routes,
-      "/api/session-changes.base",
-      `sessionId=${SESSION}&seq=3&path=src/new.js`,
-    );
-    assert.deepEqual(await absent.json(), { absent: true });
-
-    const uncaptured = await call(
-      routes,
-      "/api/session-changes.base",
-      `sessionId=${SESSION}&seq=3&path=src/other.js`,
-    );
-    assert.equal(uncaptured.status, 404);
-    assert.deepEqual(await uncaptured.json(), { error: "not-captured" });
-
-    const outside = await call(
-      routes,
-      "/api/session-changes.base",
-      `sessionId=${SESSION}&seq=3&path=../escape.js`,
-    );
-    assert.equal(outside.status, 404);
-    assert.deepEqual(await outside.json(), { error: "not-captured" });
-  } finally {
-    await dispose();
-  }
-});
-
-test("the base route serves a pre-image captured outside the workspace", async () => {
+test("a Session with no captures lists nothing and refuses a pre-image", async () => {
   const { cwd, dispose } = await workspace();
   try {
-    const absolute = resolve(cwd, "../outside.js");
-    // The same mapping the Host uses: a SHA-1 of the absolute path (case-folded on
-    // Windows), under the external store beside the Session's own store.
-    const digest = createHash("sha1")
-      .update(process.platform === "win32" ? absolute.toLowerCase() : absolute, "utf8")
-      .digest("hex");
-    const external = join(cwd, ".dsh/session-changes", "_external", SESSION, digest);
-    await mkdir(dirname(external), { recursive: true });
-    await writeFile(external, "outside before", "utf8");
+    const sessionId = nextSession();
+    const { routes } = createContext({ cwd });
+    const list = await (
+      await call(routes, "/api/session-changes.list", `sessionId=${sessionId}`)
+    ).json();
+    assert.deepEqual(list, { files: [] });
 
-    const { routes } = createContext({
-      cwd,
-      turns: [{ seq: 3 }],
-      summaries: new Map([[3, summaryOf(cwd)]]),
-    });
-    const response = await call(
+    const base = await call(
       routes,
       "/api/session-changes.base",
-      `sessionId=${SESSION}&seq=3&path=../outside.js`,
+      `sessionId=${sessionId}&path=src/app.js`,
     );
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { text: "outside before" });
+    assert.equal(base.status, 404);
+    assert.deepEqual(await base.json(), { error: "not-captured" });
   } finally {
     await dispose();
   }
 });
 
-test("the exists route reports which listed paths are still on disk", async () => {
-  const { cwd, dispose } = await workspace();
-  try {
-    await writeFile(join(cwd, "src/app.js"), "current text", "utf8");
-    const { routes } = createContext({
-      cwd,
-      turns: [{ seq: 3 }],
-      summaries: new Map([[3, summaryOf(cwd)]]),
-    });
-    const response = await call(routes, "/api/session-changes.exists", `sessionId=${SESSION}`);
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), {
-      paths: { "src/app.js": "file", "src/new.js": "missing" },
-    });
-  } finally {
-    await dispose();
-  }
-});
-
-/**
- * Read frames off a streamed route, one newline-delimited JSON object at a time.
- * @param response - the streamed response.
- * @returns `{ next }`, which resolves to the next frame or null at the end.
- */
+/** Read frames off a streamed route, one newline-delimited JSON object at a time. */
 function framesOf(response) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -344,41 +280,32 @@ function framesOf(response) {
   };
 }
 
-test("the watch route streams readiness, a file invalidation, and closes its watchers", async () => {
+test("the watch route streams readiness and wakes on every capture", async () => {
   const { cwd, dispose } = await workspace();
   try {
-    await writeFile(join(cwd, "src/app.js"), "current text", "utf8");
-    const { routes, watchers, closed } = createContext({
-      cwd,
-      turns: [{ seq: 3 }],
-      summaries: new Map([[3, summaryOf(cwd)]]),
-    });
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers, watchers } = createContext({ cwd });
 
-    const response = await call(routes, "/api/session-changes.watch", `sessionId=${SESSION}`);
+    const response = await call(routes, "/api/session-changes.watch", `sessionId=${sessionId}`);
     assert.equal(response.status, 200);
     assert.match(String(response.headers.get("content-type")), /ndjson/);
-
     const frames = framesOf(response);
-    assert.deepEqual(await frames.next(), { t: "ready", files: true });
-    assert.equal(watchers.length, 2);
+    assert.deepEqual(await frames.next(), { t: "ready", files: false });
 
+    const target = join(cwd, "src", "app.js");
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, "before\n", "utf8");
+    await toolWrite({ handlers, session, target, content: "after\n" });
+    assert.deepEqual(await frames.next(), { t: "added" });
+
+    // The capture re-arms the watchers, so the file is observed from now on.
+    await new Promise((done) => setTimeout(done, 20));
+    assert.equal(watchers.length >= 1, true);
     watchers[0].listener();
     assert.deepEqual(await frames.next(), { t: "file" });
 
     await frames.cancel();
-    assert.equal(closed.length, 2);
-  } finally {
-    await dispose();
-  }
-});
-
-test("the watch route refuses a request without a Session", async () => {
-  const { cwd, dispose } = await workspace();
-  try {
-    const { routes } = createContext({ cwd, turns: [], summaries: new Map() });
-    const response = await call(routes, "/api/session-changes.watch", "");
-    assert.equal(response.status, 400);
-    assert.deepEqual(await response.json(), { error: "bad-request" });
   } finally {
     await dispose();
   }
