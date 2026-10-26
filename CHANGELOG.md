@@ -1,5 +1,8 @@
 # Changelog
 
+- 2026-10-27 release: make the 0.13.1 package publishable — drop `private`, add `engines.dsh`,
+  repository/homepage/keywords, an MIT LICENSE, an icon, exported locale meta, and npm/Git install
+  instructions
 - 2026-10-27 ui: restore the Full/hunks scope switch and the ⤴ open-in-default-application button; the
   Host grows a POST `api/session-changes.open` that only opens a path this Session captured
 - 2026-10-27 store: the list now comes from the plugin's own pre-image store instead of the recorder's

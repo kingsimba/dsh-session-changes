@@ -91,15 +91,12 @@ supported path.
 
 ## Install
 
-The Desktop profile is managed by the Electron app, so install it the way the app expects:
+The Desktop profile is managed by the Electron app, so install it through **Plugins**:
 
-1. Sidebar → **Plugins** → **Add plugin**
-2. Paste the absolute directory:
-
-   ```
-   C:\Users\kingsimba\Documents\deepseek-harness\default-workspace\plugins\dsh-session-changes
-   ```
-
+1. Sidebar → **Plugins** → **Add plugin**.
+2. Enter the published package name `dsh-session-changes`, a Git URL pinned to a commit
+   (`git+https://github.com/kingsimba/dsh-session-changes.git#<commit>`), or the absolute
+   directory of a local checkout.
 3. Confirm **Install** and let it compose.
 4. Refresh the app window (Ctrl+R) so the browser loads the new client bundle.
 5. In the right sidebar, click **+** (add tab) → **Changes**.
@@ -110,7 +107,7 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
 
 * Host half (`lib/index.js`): the plugin's **own store** under `<workspace>/.dsh/session-changes/` is the
   only source. It copies a file's whole text just before the first `fs/write-intent` / `fs/edit-intent`
-  that touches it (or writes an `.absent` marker for a path that did not exist yet), and serves four
+  that touches it (or writes an `.absent` marker for a path that did not exist yet), and serves five
   authenticated routes: `api/session-changes.list` (the store's index — which files this Session's
   file tools touched), `api/session-changes.file` (a file's current text, refusing binary and oversized
   ones), `api/session-changes.base` (its stored pre-image, or `{ absent: true }`),
@@ -120,6 +117,20 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
 * Browser half (`src/client/`): a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body.
   It fetches the list, reads one pre-image and one current text per row to number it, and diffs the
   selected file with its own diff engine; it never calls `api/changes.diff`.
+
+## Permissions and data
+
+* **File access** — the Host reads the Session workspace and writes the pre-image store under
+  `<workspace>/.dsh/session-changes/`; a path outside the workspace is kept under the sibling
+  `_external` store. Nothing is uploaded.
+* **HTTP routes** — five authenticated routes under `api/session-changes.*` (list, file, base,
+  watch, open) are served through the DSH connection and require the signed-in user.
+* **Open in application** — `api/session-changes.open` spawns the OS opener
+  (`cmd.exe /c start` on Windows, `open` on macOS, `xdg-open` elsewhere) for a path the Session
+  captured and that is still a regular file. It does not accept arbitrary paths.
+* **No outbound network, credentials, or telemetry** — the plugin talks only to the DSH Host and
+  the local filesystem.
+* The Host half runs with DSH's permissions; review `lib/index.js` before installing.
 
 ## Development
 

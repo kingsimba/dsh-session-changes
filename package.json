@@ -1,19 +1,23 @@
 {
   "name": "dsh-session-changes",
   "version": "0.13.1",
-  "private": true,
-  "description": "Always-available Session changes page for the DeepSeek Harness Web GUI: every file this Session changed, grouped by turn, with the selected file's side-by-side comparison beside the list.",
+  "description": "An always-available Changes page for the DeepSeek Harness Web GUI: every file this Session changed, with the selected file's side-by-side pre-image comparison beside the list.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "icon.svg",
+    "locale/*.json"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -24,6 +28,24 @@
     "test:isolated": "node --test test/",
     "verify": "npm run format:check && npm run build:check && npm test"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kingsimba/dsh-session-changes.git"
+  },
+  "homepage": "https://github.com/kingsimba/dsh-session-changes#readme",
+  "bugs": {
+    "url": "https://github.com/kingsimba/dsh-session-changes/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "diff",
+    "session",
+    "changes",
+    "sidebar"
+  ],
+  "author": "kingsimba",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -42,6 +64,7 @@
     "rollup": "^4.0.0"
   },
   "engines": {
+    "dsh": ">=0.2.1-rc.3 <0.3.0",
     "node": ">=22.8.0"
   },
   "license": "MIT"

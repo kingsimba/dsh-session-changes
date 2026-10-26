@@ -2,6 +2,9 @@
 
 写给下一位接手的人（或新 Session 的 AI）。读完这一页你应该能：知道它是什么、现在到哪一步、怎么验证、还剩什么。
 
+> **2026-10-27 发布准备**：0.13.1 整理为可发布包（移除 `private`，补 `engines.dsh`、MIT LICENSE、icon、
+> `locale/*.json` 的 meta 与 npm 元数据）；安装文档改为 npm / Git / 本地目录三种入口。
+
 > **2026-10-26 01:25 更新**：0.11.0 的 Host 半边（首次改前备份 + `.base` 路由）已在**真实运行的 App**里跑通，
 > 不再是「只做过单元级验证」。浏览器端 `Overall` 的最终观感仍待人工确认（见 §6）。
 >
@@ -45,8 +48,9 @@
 一个 DSH Web GUI 的本地插件：右侧栏多一个 **Changes** 页，用来 review「这次会话改了哪些文件」。
 
 - 代码：`C:\Users\kingsimba\Documents\deepseek-harness\default-workspace\plugins\dsh-session-changes`
-- 安装方式：Plugins → Add plugin → 粘贴上面的**绝对路径**；`~/.dsh/profiles/desktop/node_modules/dsh-session-changes` 是指向这里的 junction，所以**改代码立即生效**（刷新方式见 §5）
-- 版本：`0.12.0`，git 仓库就在插件目录里，tag 从 `v0.3.0` 到 `v0.12.0`
+- 安装方式：Plugins → Add plugin → npm 包名 `dsh-session-changes` / Git URL / 本地绝对路径；开发时
+  `~/.dsh/profiles/desktop/node_modules/dsh-session-changes` 是指向这里的 junction，所以**改代码立即生效**（刷新方式见 §5）
+- 版本：`0.13.1`，git 仓库就在插件目录里，tag 从 `v0.3.0` 到 `v0.12.1`（`v0.13.x` 待打）
 
 ## 2. 现在能做什么
 
