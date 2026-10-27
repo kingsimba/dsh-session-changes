@@ -2,6 +2,7 @@ import { DetailPane } from "./components/detail-pane.js";
 import { ListPane } from "./components/list-pane.js";
 import { buildListRows, buildRows } from "./components/list-rows.js";
 import { LAYOUT_KEY, WHOLE_KEY, WRAP_KEY } from "./constants.js";
+import { newClientId } from "./client-id.js";
 import { useAutoRefresh } from "./hooks/use-auto-refresh.js";
 import { useBase } from "./hooks/use-base.js";
 import { useComparison } from "./hooks/use-comparison.js";
@@ -14,7 +15,7 @@ import { fallback } from "./locale/fallback.js";
 import { h, react } from "./react.js";
 import { readLayout, readWhole, readWrap, writeStored } from "./storage.js";
 import { hashText, spliceLines } from "./text-patch.js";
-import { requestApply, requestOpen } from "./api.js";
+import { requestApply, requestApplyAll, requestApplyFile, requestOpen } from "./api.js";
 
 /**
  * Master list on the left, the selected file's comparison on the right, one
@@ -44,6 +45,13 @@ export function ChangesTab(props) {
   const [busyKey, setBusyKey] = react.useState(null);
   const [actionError, setActionError] = react.useState(null);
   const [baseVersion, setBaseVersion] = react.useState(0);
+  const [confirmRevertAll, setConfirmRevertAll] = react.useState(false);
+
+  // One id per mounted tab: the Host leaves this tab's own write echoes out of its
+  // watch stream, so an action refreshes once instead of twice.
+  const clientIdRef = react.useRef(null);
+  if (clientIdRef.current === null) clientIdRef.current = newClientId();
+  const clientId = clientIdRef.current;
 
   const { rootRef, left, dragging, startDrag, nudge } = useResizable();
   const list = useFileList({ sessionId, visible });
@@ -59,9 +67,10 @@ export function ChangesTab(props) {
 
   // The Host streams each invalidation; a 1s quiet period folds a save burst into
   // one re-read of the list and the open comparison.
-  useAutoRefresh({ sessionId, visible, refresh: refreshAll });
+  useAutoRefresh({ sessionId, visible, refresh: refreshAll, clientId });
 
   const rows = buildRows(list.state.files, counts);
+  const hasRows = rows.length > 0;
   useSelection({ rows, selectedPath, setSelectedPath });
   const selected =
     selectedPath === null ? null : (rows.find((row) => row.path === selectedPath) ?? null);
@@ -73,6 +82,11 @@ export function ChangesTab(props) {
   react.useEffect(() => {
     setActionError(null);
   }, [selectedPath]);
+
+  // Nothing left to revert: the whole-list confirmation has no subject any more.
+  react.useEffect(() => {
+    if (hasRows !== true) setConfirmRevertAll(false);
+  }, [hasRows]);
 
   const totals = rows.reduce(
     (sum, row) => ({
@@ -115,6 +129,17 @@ export function ChangesTab(props) {
   };
 
   /**
+   * Explain a refused action, then re-read so the pane matches what the Host holds.
+   * A stale-view refusal says so; anything else is a plain failure.
+   * @param error - the refusal from the Host.
+   */
+  const reportActionError = (error) => {
+    const conflict = error !== null && error !== undefined && error.conflict === true;
+    setActionError(conflict === true ? t("applyConflict") : t("applyFailed"));
+    refreshAll();
+  };
+
+  /**
    * Accept or revert one change block. Accept replaces the block's old range in the
    * stored pre-image with its added lines; revert replaces the block's new range in
    * the live file with its deleted lines.
@@ -142,18 +167,56 @@ export function ChangesTab(props) {
     setBusyKey(block.key);
     setActionError(null);
     hashText(source)
-      .then((expect) => requestApply({ sessionId, path: selectedPath, action, text, expect }))
+      .then((expect) =>
+        requestApply({ sessionId, path: selectedPath, action, text, expect, source: clientId }),
+      )
       .then(() => {
         // The pre-image changed: the row counts' cached copy of it is stale too.
         if (action === "accept") setBaseVersion((value) => value + 1);
         refreshAll();
       })
-      .catch((error) => {
-        const conflict = error !== null && error !== undefined && error.conflict === true;
-        setActionError(conflict === true ? t("applyConflict") : t("applyFailed"));
-        // Either way the pane should show the text the Host actually holds now.
+      .catch(reportActionError)
+      .finally(() => setBusyKey(null));
+  };
+
+  /**
+   * Accept or revert every change in one listed file at once. The Host decides the
+   * whole content from the files it holds, so this is safe for binary files too.
+   *
+   * @param action - `accept` or `revert`.
+   * @param path - the listed file's path.
+   */
+  const applyFile = (action, path) => {
+    if (busyKey !== null) return;
+    setBusyKey("file:" + path);
+    setActionError(null);
+    requestApplyFile({ sessionId, path, action, source: clientId })
+      .then(() => {
+        if (action === "accept") setBaseVersion((value) => value + 1);
         refreshAll();
       })
+      .catch(reportActionError)
+      .finally(() => setBusyKey(null));
+  };
+
+  /**
+   * Accept or revert the whole list in one request.
+   * @param action - `accept` or `revert`.
+   */
+  const applyAll = (action) => {
+    if (busyKey !== null) return;
+    setBusyKey("all");
+    setActionError(null);
+    setConfirmRevertAll(false);
+    requestApplyAll({ sessionId, action, source: clientId })
+      .then((result) => {
+        if (action === "accept") setBaseVersion((value) => value + 1);
+        if (result !== null && typeof result === "object" && (result.failed ?? 0) > 0) {
+          setActionError(t("applyPartial", { count: String(result.failed) }));
+        }
+        refreshAll();
+      })
+      .catch(reportActionError)
       .finally(() => setBusyKey(null));
   };
 
@@ -162,6 +225,8 @@ export function ChangesTab(props) {
     selectedPath,
     t,
     onSelect: setSelectedPath,
+    onAction: applyFile,
+    busy: busyKey !== null,
   });
 
   return h("div", { className: "dsc-root", "data-session-changes": true, ref: rootRef }, [
@@ -174,6 +239,12 @@ export function ChangesTab(props) {
       left,
       reverted: rows.length === 0 && list.state.files.length > 0,
       onRefresh: refreshAll,
+      actionBusy: busyKey !== null,
+      confirmRevertAll,
+      onAcceptAll: () => applyAll("accept"),
+      onAskRevertAll: () => setConfirmRevertAll(true),
+      onCancelRevertAll: () => setConfirmRevertAll(false),
+      onRevertAll: () => applyAll("revert"),
     }),
     h("div", {
       className: "dsc-divider",

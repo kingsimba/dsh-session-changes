@@ -1,6 +1,8 @@
 import {
   ACCEPT_ROUTE,
+  ALL_APPLY_ROUTE,
   BASE_ROUTE,
+  FILE_APPLY_ROUTE,
   FILE_ROUTE,
   LIST_ROUTE,
   OPEN_ROUTE,
@@ -148,18 +150,29 @@ export async function requestOpen(sessionId, path) {
  * about to replace, so an agent edit that landed while the diff was open cannot be
  * clobbered; the refusal is flagged `conflict` for the caller to explain.
  *
- * @param input - `{ sessionId, path, action, text, expect }`: the block's new full
- *   text for one side, and the digest of the text it replaces (`null` to skip).
+ * @param input - `{ sessionId, path, action, text, expect, source }`: the block's new
+ *   full text for one side, the digest of the text it replaces (`null` to skip), and
+ *   the requesting tab's id so the Host can tag the invalidation it causes.
  * @returns the Host's answer, `{ ok }` plus `deleted` when a revert removed a file.
  */
-export async function requestApply({ sessionId, path, action, text, expect }) {
+export async function requestApply({ sessionId, path, action, text, expect, source }) {
   const route = action === "accept" ? ACCEPT_ROUTE : REVERT_ROUTE;
+  return postWrite(route, { sessionId, path, text, expect, source });
+}
+
+/**
+ * POST one review write and parse its answer, with the refusal's reason on the error.
+ * @param route - the authenticated write route.
+ * @param body - the write's JSON body.
+ * @returns the Host's answer.
+ */
+async function postWrite(route, body) {
   const response = await fetch(route, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     credentials: "same-origin",
     cache: "no-store",
-    body: JSON.stringify({ sessionId, path, text, expect }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     let reason = String(response.status);
@@ -184,6 +197,29 @@ export async function requestApply({ sessionId, path, action, text, expect }) {
 }
 
 /**
+ * Apply a whole file: accept every change in it into the stored pre-image, or
+ * restore its pre-image on disk. The Host decides the content from the files it
+ * holds, so binary files are copied byte for byte rather than decoded.
+ *
+ * @param input - `{ sessionId, path, action, source }`.
+ * @returns the Host's answer, `{ ok }`.
+ */
+export async function requestApplyFile({ sessionId, path, action, source }) {
+  return postWrite(FILE_APPLY_ROUTE, { sessionId, path, action, source });
+}
+
+/**
+ * Apply every listed file at once: accept all remaining changes into the stored
+ * pre-images, or restore every pre-image on disk. One POST covers the whole list.
+ *
+ * @param input - `{ sessionId, action, source }`.
+ * @returns the Host's answer: `{ ok, files, failed }`.
+ */
+export async function requestApplyAll({ sessionId, action, source }) {
+  return postWrite(ALL_APPLY_ROUTE, { sessionId, action, source });
+}
+
+/**
  * Open the Host's invalidation stream for one Session and deliver each frame as it
  * arrives. Frames are newline-delimited JSON: `ready`, `file`, `added`, and `ping`.
  *
@@ -191,12 +227,15 @@ export async function requestApply({ sessionId, path, action, text, expect }) {
  * the connection); a failed open rejects.
  *
  * @param sessionId - the viewed Session.
- * @param options - `{ signal, onOpen, onFrame }`.
+ * @param options - `{ signal, onOpen, onFrame, clientId }`; `clientId` is the tab's
+ *   own id, so the Host can leave this tab's write echoes out of its stream.
  * @returns when the stream ends; rejects when the route cannot be opened.
  */
 export async function watchChanges(sessionId, options) {
-  const { signal, onOpen, onFrame } = options;
-  const response = await fetch(WATCH_ROUTE + query({ sessionId: String(sessionId) }), {
+  const { signal, onOpen, onFrame, clientId } = options;
+  const params = { sessionId: String(sessionId) };
+  if (typeof clientId === "string" && clientId !== "") params.client = clientId;
+  const response = await fetch(WATCH_ROUTE + query(params), {
     signal,
     headers: { accept: "application/x-ndjson" },
     credentials: "same-origin",

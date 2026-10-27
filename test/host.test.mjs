@@ -89,6 +89,20 @@ async function applyWrite(routes, action, payload) {
   );
 }
 
+/** POST to one whole-file / whole-list review route. */
+async function postReview(routes, path, payload) {
+  const route = routes.get(path);
+  assert.ok(route !== undefined, `${path} was not registered`);
+  assert.deepEqual(route.methods, ["POST"]);
+  return route.fetch(
+    new Request(`http://host${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
 /**
  * Simulate one file-tool write: map the tool execution to its Session, run the
  * write-intent waterfall (which captures the pre-image), then write the file.
@@ -115,6 +129,8 @@ test("apply injects the services the Host half needs", async () => {
       "/api/session-changes.open",
       "/api/session-changes.accept",
       "/api/session-changes.revert",
+      "/api/session-changes.apply-file",
+      "/api/session-changes.apply-all",
     ])
       assert.ok(routes.has(path), `${path} was not registered`);
   } finally {
@@ -437,6 +453,121 @@ test("accept and revert refuse a path this Session never captured", async () => 
   }
 });
 
+test("a whole-file accept and revert copy both sides byte for byte", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const textFile = join(cwd, "src", "app.js");
+    await mkdir(dirname(textFile), { recursive: true });
+    await writeFile(textFile, "before\n", "utf8");
+    await toolWrite({ handlers, session, target: textFile, content: "after\n" });
+    const binary = join(cwd, "blob.bin");
+    await writeFile(binary, Buffer.from("abc\u0000def", "utf8"));
+    await toolWrite({ handlers, session, target: binary, content: "xyz\u0000uvw" });
+
+    const accepted = await postReview(routes, "/api/session-changes.apply-file", {
+      sessionId,
+      path: "src/app.js",
+      action: "accept",
+      source: "tab-1",
+    });
+    assert.equal(accepted.status, 200);
+    assert.deepEqual(await accepted.json(), { ok: true });
+    const stored = join(cwd, ".dsh/session-changes", sessionId, "src", "app.js");
+    assert.equal(await readFile(stored, "utf8"), "after\n");
+    assert.equal(await readFile(textFile, "utf8"), "after\n");
+
+    const reverted = await postReview(routes, "/api/session-changes.apply-file", {
+      sessionId,
+      path: "blob.bin",
+      action: "revert",
+    });
+    assert.equal(reverted.status, 200);
+    // Bytes survive the copy; no UTF-8 decode is involved.
+    assert.deepEqual(await readFile(binary), Buffer.from("abc\u0000def", "utf8"));
+
+    const refused = await postReview(routes, "/api/session-changes.apply-file", {
+      sessionId,
+      path: "nope.js",
+      action: "accept",
+    });
+    assert.equal(refused.status, 404);
+    assert.deepEqual(await refused.json(), { error: "not-captured" });
+  } finally {
+    await dispose();
+  }
+});
+
+test("apply-all accepts every listed file into its pre-image", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const app = join(cwd, "src", "app.js");
+    await mkdir(dirname(app), { recursive: true });
+    await writeFile(app, "before\n", "utf8");
+    await toolWrite({ handlers, session, target: app, content: "after\n" });
+    const other = join(cwd, "b.js");
+    await writeFile(other, "before2\n", "utf8");
+    await toolWrite({ handlers, session, target: other, content: "after2\n" });
+    const created = join(cwd, "c.md");
+    await toolWrite({ handlers, session, target: created, content: "new\n" });
+
+    const accepted = await postReview(routes, "/api/session-changes.apply-all", {
+      sessionId,
+      action: "accept",
+      source: "tab-1",
+    });
+    assert.equal(accepted.status, 200);
+    assert.deepEqual(await accepted.json(), { ok: true, files: 3, failed: 0 });
+
+    const store = join(cwd, ".dsh/session-changes", sessionId);
+    assert.equal(await readFile(join(store, "src", "app.js"), "utf8"), "after\n");
+    assert.equal(await readFile(join(store, "b.js"), "utf8"), "after2\n");
+    assert.equal(await readFile(join(store, "c.md"), "utf8"), "new\n");
+    // The created file's absent marker is gone now that its baseline is real.
+    await assert.rejects(readFile(join(store, "c.md.absent"), "utf8"));
+    // The live files are untouched.
+    assert.equal(await readFile(app, "utf8"), "after\n");
+  } finally {
+    await dispose();
+  }
+});
+
+test("apply-all reverts every listed file and removes created ones", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const app = join(cwd, "src", "app.js");
+    await mkdir(dirname(app), { recursive: true });
+    await writeFile(app, "before\n", "utf8");
+    await toolWrite({ handlers, session, target: app, content: "after\n" });
+    const other = join(cwd, "b.js");
+    await writeFile(other, "before2\n", "utf8");
+    await toolWrite({ handlers, session, target: other, content: "after2\n" });
+    const created = join(cwd, "c.md");
+    await toolWrite({ handlers, session, target: created, content: "new\n" });
+
+    const reverted = await postReview(routes, "/api/session-changes.apply-all", {
+      sessionId,
+      action: "revert",
+      source: "tab-1",
+    });
+    assert.equal(reverted.status, 200);
+    assert.deepEqual(await reverted.json(), { ok: true, files: 3, failed: 0 });
+    assert.equal(await readFile(app, "utf8"), "before\n");
+    assert.equal(await readFile(other, "utf8"), "before2\n");
+    await assert.rejects(readFile(created, "utf8"));
+  } finally {
+    await dispose();
+  }
+});
+
 test("the open route refuses a path this Session never captured", async () => {
   const { cwd, dispose } = await workspace();
   try {
@@ -530,6 +661,74 @@ test("the watch route streams readiness and wakes on every capture", async () =>
 
     await frames.cancel();
   } finally {
+    await dispose();
+  }
+});
+
+test("a tab skips its own review-write echoes while other tabs still hear them", async () => {
+  const { cwd, dispose } = await workspace();
+  let mine;
+  let other;
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers, watchers } = createContext({ cwd });
+    const target = join(cwd, "src", "app.js");
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, "before\n", "utf8");
+    await toolWrite({ handlers, session, target, content: "after\n" });
+
+    mine = framesOf(
+      await call(routes, "/api/session-changes.watch", `sessionId=${sessionId}&client=tab-a`),
+    );
+    other = framesOf(await call(routes, "/api/session-changes.watch", `sessionId=${sessionId}`));
+    assert.deepEqual(await mine.next(), { t: "ready", files: true });
+    assert.deepEqual(await other.next(), { t: "ready", files: true });
+
+    const reverted = await applyWrite(routes, "revert", {
+      sessionId,
+      path: "src/app.js",
+      text: "before\n",
+      expect: sha("after\n"),
+      source: "tab-a",
+    });
+    assert.equal(reverted.status, 200);
+    // The tab that wrote hears nothing; every other tab hears the invalidation.
+    assert.deepEqual(await other.next(), { t: "file", source: "tab-a" });
+
+    // The filesystem echo of the same write is attributed the same way.
+    await new Promise((done) => setTimeout(done, 20));
+    const matched = watchers.filter(
+      (watcher) => watcher.target !== undefined && watcher.target.path === target,
+    );
+    assert.equal(
+      matched.length,
+      2,
+      JSON.stringify({ total: watchers.length, targets: watchers.map((w) => w.target?.path) }),
+    );
+    for (const watcher of matched) watcher.listener();
+
+    // A later capture has no source, so both tabs hear it. It is also the proof
+    // that the writing tab saw none of its own file frames in between.
+    const notes = join(cwd, "notes.md");
+    await toolWrite({ handlers, session, target: notes, content: "hello\n" });
+    assert.deepEqual(await mine.next(), { t: "added" });
+
+    const heard = [];
+    for (;;) {
+      const frame = await other.next();
+      if (frame === null || frame.t === "added") break;
+      heard.push(frame);
+    }
+    // One tagged echo per open stream; the writing tab saw none of them.
+    assert.equal(heard.length >= 1, true, JSON.stringify(heard));
+    for (const frame of heard) {
+      assert.equal(frame.t, "file");
+      assert.equal(frame.source, "tab-a");
+    }
+  } finally {
+    if (mine !== undefined) await mine.cancel();
+    if (other !== undefined) await other.cancel();
     await dispose();
   }
 });

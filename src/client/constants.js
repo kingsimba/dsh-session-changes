@@ -23,6 +23,10 @@ export const OPEN_ROUTE = "api/session-changes.open";
 export const ACCEPT_ROUTE = "api/session-changes.accept";
 export const REVERT_ROUTE = "api/session-changes.revert";
 
+/** The whole-file and whole-list review writes. */
+export const FILE_APPLY_ROUTE = "api/session-changes.apply-file";
+export const ALL_APPLY_ROUTE = "api/session-changes.apply-all";
+
 /** Persisted preferences: left pane width, wrap, whole-file scope, layout. */
 export const WIDTH_KEY = "dsh-session-changes.left";
 export const WRAP_KEY = "dsh-session-changes.wrap";

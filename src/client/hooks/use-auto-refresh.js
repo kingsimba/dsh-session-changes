@@ -19,9 +19,12 @@ export const AUTO_REFRESH_RETRY_MS = 2000;
  * the tab stale; a stream that never opened is left alone — the tab still reads on
  * open, and a Host without the watch route cannot be healed by retrying.
  *
- * @param input - `{ sessionId, visible, refresh }`.
+ * `clientId` identifies this tab, so the Host can omit the frames its own review
+ * writes caused; the write handler already re-read the same data.
+ *
+ * @param input - `{ sessionId, visible, refresh, clientId }`.
  */
-export function useAutoRefresh({ sessionId, visible, refresh }) {
+export function useAutoRefresh({ sessionId, visible, refresh, clientId }) {
   const latest = react.useRef(refresh);
   react.useEffect(() => {
     latest.current = refresh;
@@ -40,6 +43,7 @@ export function useAutoRefresh({ sessionId, visible, refresh }) {
       try {
         await watchChanges(sessionId, {
           signal: controller.signal,
+          clientId,
           onOpen: () => {
             opened = true;
           },
@@ -61,5 +65,5 @@ export function useAutoRefresh({ sessionId, visible, refresh }) {
       debouncer.dispose();
       if (retry !== undefined) clearTimeout(retry);
     };
-  }, [sessionId, visible]);
+  }, [sessionId, visible, clientId]);
 }

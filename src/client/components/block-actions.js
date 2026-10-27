@@ -16,7 +16,7 @@ export function BlockActions({ t, block, busy, onAction }) {
     event.stopPropagation();
     if (busy !== true) onAction(action, block);
   };
-  return h("span", { className: "dsc-actions", key: "actions" }, [
+  return h("span", { className: "dsc-actions", key: "actions", "data-scope": "block" }, [
     h("span", { className: "dsc-actionbar", key: "bar" }, [
       h(
         "button",

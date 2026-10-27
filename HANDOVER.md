@@ -2,8 +2,19 @@
 
 写给下一位接手的人（或新 Session 的 AI）。读完这一页你应该能：知道它是什么、现在到哪一步、怎么验证、还剩什么。
 
+> **2026-10-27 v0.15.0「整文件 / 整列表操作 + 去掉双重刷新」**：
+> ① 左侧每个文件行悬停出现 `Accept` / `Revert`，作用于**该文件的全部剩余改动**；列表顶部新增
+> `Accept All` / `Revert All` 行，**Revert All 先在行内问一次确认**（不弹 `window.confirm`）。
+> ② 新增 `POST api/session-changes.apply-file` / `.apply-all`：用 `copyFile` **按字节**改前像/当前文件，
+> 二进制不会被 UTF-8 解码破坏；apply-all 对每个文件独立计数，单个失败不会中断整批。
+> ③ 修「accept 后刷新两次」：每个挂载的 Tab 生成 `clientId`，watch 流带 `client=id`，写请求带 `source:id`；
+> Host 用 `source` 标记本次写造成的 `file` 帧（revert 的 `fs.watch` 回显用 1.5s 的 `recentWrites`
+> 按路径归因），对应 Tab 的流直接跳过，其他 Tab 照常刷新。客户端仍保留动作成功后的即时 `refreshAll()`，
+> 现在只会读一次。
+> 详见 §3.1、§3.2 与 §4 的新文件。
+
 > **2026-10-27 v0.14.0「逐块接受 / 还原」**：diff 视图里每个红/绿改动块在鼠标悬停时出现
-> `Accept` / `Revert` 两个按钮（Split 为右栏，Inline 为改动行；移开即消失）。
+> `Accept` / `Revert` 两个按钮（Split 的绿块在右栏、纯删除块在左栏红块，Inline 为改动行；移开即消失）。
 > **Accept** 把该块的「新行」写回 **首次改前快照**（`<workspace>/.dsh/session-changes/<sid>/<rel>`），
 > 该块随即不再算作改动；**Revert** 把该块的「旧行」写回**磁盘上的当前文件**。
 > 新建文件的所有行被整体 Revert 时删除该文件（恢复到「会话前不存在」）。
@@ -60,7 +71,7 @@
 - 代码：`C:\Users\kingsimba\Documents\deepseek-harness\default-workspace\plugins\dsh-session-changes`
 - 安装方式：Plugins → Add plugin → npm 包名 `dsh-session-changes` / Git URL / 本地绝对路径；开发时
   `~/.dsh/profiles/desktop/node_modules/dsh-session-changes` 是指向这里的 junction，所以**改代码立即生效**（刷新方式见 §5）
-- 版本：`0.14.0`，git 仓库就在插件目录里，tag 从 `v0.3.0` 到 `v0.12.1`（`v0.13.x`、`v0.14.x` 待打）
+- 版本：`0.15.0`，git 仓库就在插件目录里，tag 从 `v0.3.0` 到 `v0.12.1`（`v0.13.x`、`v0.14.x`、`v0.15.x` 待打）
 
 ## 2. 现在能做什么
 
@@ -97,10 +108,12 @@
 | `GET /api/session-changes.list?sessionId` | 前像存储的索引：该 Session 文件工具碰过的文件（前端列表） |
 | `GET /api/session-changes.file?sessionId&path` | 文件**当前**内容（`node:fs`，上限 4MB；binary/too-large 归一成错误码） |
 | `GET /api/session-changes.base?sessionId&path` | 文件的**首次改前原文**；新建返回 `{absent:true}`；未捕获 404 |
-| `GET /api/session-changes.watch?sessionId` | ndjson 失效流：`ready` / `file` / `added` / `ping`；`fs.watch` 观察列表里的文件 |
+| `GET /api/session-changes.watch?sessionId&client` | ndjson 失效流：`ready` / `file` / `added` / `ping`；`fs.watch` 观察列表里的文件；带 `client` 时跳过该 Tab 自己写入造成的帧 |
 | `POST /api/session-changes.open?sessionId&path` | 用桌面默认应用打开一个**已捕获**的文件 |
-| `POST /api/session-changes.accept` | body `{sessionId,path,text,expect}`；把 `text` 写回**前像**，删掉 `.absent`（如存在） |
+| `POST /api/session-changes.accept` | body `{sessionId,path,text,expect,source}`；把 `text` 写回**前像**，删掉 `.absent`（如存在） |
 | `POST /api/session-changes.revert` | body 同上；把 `text` 写回**磁盘文件**；`text===""` 且前像为 absent 时删除该文件 |
+| `POST /api/session-changes.apply-file` | body `{sessionId,path,action,source}`；整文件 accept（当前字节→前像）或 revert（前像字节→当前文件，absent 则删） |
+| `POST /api/session-changes.apply-all` | body `{sessionId,action,source}`；对 `listFiles` 的每个文件做一次 apply-file，返回 `{ok,files,failed}` |
 
 ### 3.1 逐块接受 / 还原（v0.14.0）
 
@@ -110,16 +123,39 @@
   hunk 标 `editable:false`，不出按钮。
 - `components/block-actions.js` 渲染一对按钮；它们就在改动行里，靠 CSS `:hover`/`:focus-within`
   显隐（`styles.css` 里 `.dsc-actions` 用 `position: sticky; right`，长行横向滚动时也停在右缘）。
-  Split 只在**右栏**放按钮（纯删除块的右栏是 pad 行，仍然带 `row.block`）；Inline 每个改动行各一份。
+  Split 的按钮落在**有 new 侧的那一半**（绿块在右栏）；纯删除行没有 new 侧，按钮落在左栏红块上。
+  Inline 每个改动行各一份。
 - 点击后 `changes-tab.js` 用 `text-patch.js` 的 `spliceLines` 在本地拼出该侧的完整新文本：
   - accept：`base.split("\n")` 的 `[oldStart-1, oldStart-1+oldLines)` 换成 `added`；
   - revert：当前文本的 `[newStart-1, newStart-1+newLines)` 换成 `deleted`。
   然后 `hashText(被替换侧原文)`（WebCrypto SHA-256）作为 `expect` POST 给 Host。
 - Host 在写前重新读取被替换侧并算同一个 SHA-256：不一致 → `409 {error:"changed"}`，不写。
-  成功后 `notify(sessionId,{t:"file"})`；客户端立即 `refreshAll()`，accept 还 bump `baseVersion`
+  成功后 `notify(sessionId,{t:"file",source})`；客户端立即 `refreshAll()`，accept 还 bump `baseVersion`
   让 `useFileCounts` 丢掉前像缓存。冲突时显示 `applyConflict` 提示并刷新，绝不静默覆盖。
 - 新建文件整体 revert（`text===""` 且 `.absent` 存在）→ `rm` 该文件，返回 `{ok:true,deleted:true}`。
 - 注意：**accept 会覆盖前像里的旧行**，没有第二份备份；误接受只能靠文件自身 VCS 找回。
+
+### 3.2 整文件 / 整列表，以及单次刷新（v0.15.0）
+
+- 列表行：`components/file-row.js` 从 `<button>` 改成 `div.dsc-row` + 内层 `button.dsc-row-main`
+  （按钮不能嵌套 button）；`.dsc-row-actions` 绝对定位在行右端，`:hover`/`:focus-within` 显示，
+  同时隐藏 `.dsc-counts`。动作调用 `applyFile(action, path)`。
+- 顶部整列表行：`components/all-row.js`，`Accept All` 直接 `applyAll("accept")`；`Revert All` 先
+  `setConfirmRevertAll(true)`，同一行变成问题 + `Revert`/`Cancel`，只有 confirm 才发写请求。
+  `rows.length === 0` 时整行不渲染，列表变空会自动收起确认。
+- Host `applyWholeFile` 用 `copyFile` 而不是读写文本：二进制/任意字节原样复制；accept 时删 `.absent`，
+  revert 时 absent 则 `rm`、否则 `mkdir -p` 后 `copyFile`。`handleApplyAll` 逐文件 try/catch，
+  返回 `{files,failed}`，客户端用 `applyPartial` 提示部分失败。
+- **单次刷新**：`changes-tab.js` 为每个挂载的 Tab 生成 `clientId`（`client-id.js`），
+  `watchChanges` 带 `client=`，三类写请求带 `source=`。Host：
+  - `handleWatch` 的 `send` 丢弃 `frame.source === clientId` 的帧；
+  - `handleApply*` 的 `notify` 带上 `source`；
+  - revert 在写盘前 `markWrite(sessionId, absolute, source)`，`handleWatch` 的 `fs.watch` 回调用
+    `writeSource(...)`（`RECENT_WRITE_MS = 1500`，按 `sessionId\0absolute` 记录、只读不消费，所有
+    stream 都能读到同一归因）给 fs 回显打上 `source`。这样**执行动作的 Tab 两条帧都跳过**，
+    其他 Tab 照常收到；执行 Tab 只在 POST 成功后 `refreshAll()` 一次。
+  - 已知残余：revert 后 1.5s 内 Agent 对**同一文件**的写入会被误归因，动作 Tab 会跳过那一帧
+    （其他 Tab 仍刷新），下一次失效或手动 ↻ 会补上。
 
 **客户端**（`lib/client.js`）：
 
@@ -138,7 +174,7 @@
 
 ```
 plugins/dsh-session-changes/
-├─ package.json          # dsh.bundle.patch + dsh.client + pnpm scripts（version 0.14.0）
+├─ package.json          # dsh.bundle.patch + dsh.client + pnpm scripts（version 0.15.0）
 ├─ cordis.patch.yml      # insert: session-changes 行
 ├─ README.md             # 面向用户的功能说明（含 Development 一节）
 ├─ HANDOVER.md           # 本文件
@@ -146,7 +182,7 @@ plugins/dsh-session-changes/
 ├─ .prettierignore       # 跳过生成物 lib/client.js 与 *.md
 ├─ scripts/build.mjs     # rollup：src/client → lib/client.js，带 --check
 ├─ src/client/           # 浏览器端源码（拆分后的真身，见下）
-├─ lib/index.js          # Host：七条路由（list/file/base/watch/open/accept/revert）+ 前像存储（无 recorder 依赖，无构建步骤）
+├─ lib/index.js          # Host：九条路由（list/file/base/watch/open/accept/revert/apply-file/apply-all）+ 前像存储（无 recorder 依赖，无构建步骤）
 ├─ lib/client.js         # 【生成物】rollup 打包结果，别手改
 ├─ test/                 # harness + diff/bundle 测试（node --test）
 └─ profile/              # 快照：~/.dsh/profiles/desktop 的 cordis.patch.yml 与 package.json
@@ -166,9 +202,10 @@ src/client/
 │   ├─ use-comparison.js    # buildComparison 的 memo
 │   └─ use-resizable.js     # 宽度、拖拽、键盘微调、ResizeObserver
 ├─ components/
-│   ├─ list-pane.js         # 左栏：标题/统计/状态
+│   ├─ list-pane.js         # 左栏：标题/统计/状态 + 顶部 Accept All / Revert All
+│   ├─ all-row.js           # 整列表操作行（Revert All 的行内确认）
 │   ├─ list-rows.js         # 文件夹标题 + 文件行
-│   ├─ file-row.js          # 一行文件（含删除线状态）
+│   ├─ file-row.js          # 一行文件（删除线状态 + 悬停 Accept/Revert）
 │   ├─ counts.js            # +N −M / binary / too large
 │   ├─ right-head.js        # 右栏工具条
 │   ├─ detail-pane.js       # 工具条 + body
@@ -188,7 +225,8 @@ src/client/
 │   ├─ highlight.js         # highlightedSide
 │   └─ model.js             # 按 ROW_CAP 截断 + 编号 + 成对 + 高亮 + block 的统一模型
 ├─ locale/{en,zh,fallback}.js
-├─ api.js                 # 所有 fetch（list/file/base + watch + accept/revert）
+├─ api.js                 # 所有 fetch（list/file/base + watch + accept/revert + apply-file/all）
+├─ client-id.js           # 每个 Tab 的 clientId：watch 与写请求都带它，Host 据此跳过自己的回显
 ├─ text-patch.js          # spliceLines（按块拼完整文本）+ hashText（SHA-256 expect）
 ├─ comparison.js          # 对比构建：pre-image → 当前文件
 ├─ grouping.js            # groupFiles（按目录分组）
@@ -326,13 +364,14 @@ window.__ModuleLoader__.load({ id, factory: (require) => { ... } })
 
 - `test/support/harness.mjs`：在 Node 里装 `window`/`document`/`fetch` 和一个带依赖比较的 react 替代，加载
   打包后的 `lib/client.js`，可 `render` / `settle`（按 deps 跑 effect，跟 React 一样）。
-- `test/bundle.test.mjs`：注册结果、By turn/Overall 渲染、已删除文件、空会话、列表失败、二进制 payload。
-- `test/diff.test.mjs`：`diffLines`（含 coarse 降级）、`toHunks`、`sliceHunk`、`reverseHunks`、`splitRows`、
-  `buildComparison` 的七种状态（含 `no-base`）。
-- `test/host.test.mjs`：桩 `ctx` + 临时工作区，验四条路由（list 折叠、file 现读/ENOENT、base 的
-  原文/absent/not-captured/越界、exists 的 file/missing）。
+- `test/bundle.test.mjs`：注册、列表与对比渲染、已删除/二进制/空会话/列表失败，以及块 / 文件行 /
+  整列表的 Accept-Revert 标记与点击后发出的请求体（含 `source`）。
+- `test/diff.test.mjs`：diff 引擎、hunk 与 change block 范围、`spliceLines`、`buildComparison` 的七种状态。
+- `test/host.test.mjs`：桩 `ctx` + 临时工作区，验九条路由（含 409 冲突、二进制按字节复制、整批 `{files,failed}`、
+  watch 对自身写入回显的过滤）。
+- `test/watch.test.mjs`：1 s debounce、ndjson 解析、watch 的 `client` 参数。
 
-三个文件共 30 条断言，`pnpm test` 单进程跑完约 0.3s。
+五个测试文件共 66 条断言，`pnpm test` 单进程约 7.5 s（大头是渲染 harness 每次 settle 的 200 ms 级等待）。
 
 **等价性证据**：`scripts/compare-bundles.mjs <旧 bundle>` 用同一套 stub 渲染 11 个场景（By turn / Overall ×
 Split / Inline × Full、已删除、二进制、drift、空会话、列表失败），元素树（tag + 可序列化 props + 文本）

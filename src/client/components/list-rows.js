@@ -47,10 +47,10 @@ export function buildRows(files, counts) {
 /**
  * Build the left list: one folder header, then that folder's files.
  *
- * @param input - `{ rows, selectedPath, t, onSelect }`.
+ * @param input - `{ rows, selectedPath, t, onSelect, onAction, busy }`.
  * @returns the elements in order.
  */
-export function buildListRows({ rows, selectedPath, t, onSelect }) {
+export function buildListRows({ rows, selectedPath, t, onSelect, onAction, busy }) {
   const grouped = groupFiles(rows);
   const out = [];
   for (const folder of grouped.folders) {
@@ -66,6 +66,8 @@ export function buildListRows({ rows, selectedPath, t, onSelect }) {
           missing: row.file.missing === true,
           selected: rowMatchesSelection(row.file, { path: selectedPath }),
           onSelect: () => onSelect(row.file.path),
+          onAction,
+          busy,
         }),
       );
     }

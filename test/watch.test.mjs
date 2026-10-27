@@ -75,3 +75,28 @@ test("watchChanges rejects when the Host refuses the route", async () => {
     globalThis.fetch = restore;
   }
 });
+
+test("watchChanges names the tab so its own write echoes can be left out", async () => {
+  const restore = globalThis.fetch;
+  let seen = "";
+  globalThis.fetch = async (url) => {
+    seen = String(url);
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+      { status: 200 },
+    );
+  };
+  try {
+    await watchChanges("session-1", {
+      clientId: "tab-1",
+      signal: new AbortController().signal,
+    });
+  } finally {
+    globalThis.fetch = restore;
+  }
+  assert.match(seen, /[?&]client=tab-1/);
+});

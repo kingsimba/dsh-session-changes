@@ -1,13 +1,31 @@
 import { h } from "../react.js";
+import { AllRow } from "./all-row.js";
 
 /**
- * The master list: title, session totals, and the rows.
+ * The master list: title, session totals, the whole-list actions, and the rows.
  *
- * @param props - `{ t, state, totals, rows, busy, left, reverted, onRefresh }`, where
- *   `reverted` says the empty list means "every change was undone", not "nothing
+ * @param props - `{ t, state, totals, rows, busy, left, reverted, onRefresh, actionBusy,
+ *   confirmRevertAll, onAcceptAll, onAskRevertAll, onCancelRevertAll, onRevertAll }`,
+ *   where `reverted` says the empty list means "every change was undone", not "nothing
  *   was ever recorded".
  */
-export function ListPane({ t, state, totals, rows, busy, left, reverted, onRefresh }) {
+export function ListPane(props) {
+  const {
+    t,
+    state,
+    totals,
+    rows,
+    busy,
+    left,
+    reverted,
+    onRefresh,
+    actionBusy,
+    confirmRevertAll,
+    onAcceptAll,
+    onAskRevertAll,
+    onCancelRevertAll,
+    onRevertAll,
+  } = props;
   let listBody;
   if (state.phase === "loading") listBody = h("div", { className: "dsc-note" }, t("loading"));
   else if (state.phase === "error")
@@ -49,6 +67,18 @@ export function ListPane({ t, state, totals, rows, busy, left, reverted, onRefre
           "↻",
         ),
       ]),
+      rows.length === 0
+        ? null
+        : h(AllRow, {
+            key: "all",
+            t,
+            busy: busy === true || actionBusy === true,
+            confirming: confirmRevertAll === true,
+            onAcceptAll,
+            onAskRevert: onAskRevertAll,
+            onCancelRevert: onCancelRevertAll,
+            onRevertAll,
+          }),
       listBody,
     ],
   );

@@ -91,7 +91,7 @@ Every row answers *"what changed since this task started"*: selecting a file dif
 * a file with no recorded pre-image (it was changed before this Host build started capturing them) has no
   baseline at all, so the pane says exactly that and shows no diff — it never rebuilds one from the turns.
 
-## Accept or revert a change
+## Accept or revert changes
 
 Hover a changed block in the comparison — the new half of the side-by-side view (the red
 half for a deletion, which has no new side), or a changed row in the inline view — and two
@@ -104,12 +104,23 @@ buttons appear at its right edge. They disappear as soon as the pointer leaves t
   block. Reverting every line of a file this Session created deletes the file, returning
   the path to the state it had before the Session. The baseline is not touched.
 
-One action at a time; both buttons are disabled while it runs. Each write is guarded by a
-SHA-256 digest of the side the browser last read. If the Agent (or an editor) changed that
+The same choice is available for a whole file: hover a row in the file list and it offers
+`Accept` / `Revert`, which apply to every remaining change in that file. At the top of the
+list, **Accept All** applies the whole list at once, and **Revert All** asks for
+confirmation in place before touching anything. The bulk actions copy bytes rather than
+text, so binary files are written back exactly instead of being decoded.
+
+One action at a time; every button is disabled while it runs. Each block write is guarded by
+a SHA-256 digest of the side the browser last read. If the Agent (or an editor) changed that
 side after the diff was drawn, the Host refuses with `409 changed`, the pane re-reads, and
 the action is not applied — an edit is never silently overwritten. Accepting overwrites the
 old lines in the stored pre-image, so a mistaken accept can only be undone from the
 compared file's own version control.
+
+A tab never re-reads in response to the invalidation its own action caused: the write names
+the tab, and the Host leaves that tab's echo (including the filesystem echo of a revert) out
+of its watch stream. Other tabs still refresh for it, and every refresh the user causes
+happens once.
 
 ## Editing
 
@@ -142,33 +153,35 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
 
 * Host half (`lib/index.js`): the plugin's **own store** under `<workspace>/.dsh/session-changes/` is the
   only source. It copies a file's whole text just before the first `fs/write-intent` / `fs/edit-intent`
-  that touches it (or writes an `.absent` marker for a path that did not exist yet), and serves seven
+  that touches it (or writes an `.absent` marker for a path that did not exist yet), and serves nine
   authenticated routes: `api/session-changes.list` (the store's index — which files this Session's
   file tools touched), `api/session-changes.file` (a file's current text, refusing binary and oversized
   ones), `api/session-changes.base` (its stored pre-image, or `{ absent: true }`),
   `api/session-changes.watch` (a newline-delimited stream of `ready` / `file` / `added` / `ping` frames;
   it observes the listed files through `fs.watch`), `api/session-changes.open` (a POST that hands one
-  captured file to the desktop's default application), and the POSTs `api/session-changes.accept` /
+  captured file to the desktop's default application), the POSTs `api/session-changes.accept` /
   `api/session-changes.revert` (one change block's new text written into the pre-image, or its old
-  lines written back to the file; each refuses a stale `expect` digest with `409`). No per-turn
-  summary is involved.
+  lines written back to the file; each refuses a stale `expect` digest with `409`), and
+  `api/session-changes.apply-file` / `api/session-changes.apply-all` (the same choice for a whole file
+  or the whole list, copying bytes so binaries survive). No per-turn summary is involved.
 * Browser half (`src/client/`): a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body,
   and one editable `shortcuts` command (`session.changes.open`).
   It fetches the list, reads one pre-image and one current text per row to number it, and diffs the
   selected file with its own diff engine; it never calls `api/changes.diff`. Each hunk's change blocks
-  carry both line ranges, so an action can patch one side's text without re-diffing on the Host.
+  carry both line ranges, so a block action can patch one side's text without re-diffing on the Host.
+  A per-tab id travels on the watch stream and on every write, so the Host can leave a tab's own write
+  echoes out of its stream.
 
 ## Permissions and data
 
 * **File access** — the Host reads the Session workspace and writes the pre-image store under
   `<workspace>/.dsh/session-changes/`; a path outside the workspace is kept under the sibling
-  `_external` store. Accept rewrites one captured pre-image; revert writes one captured file on disk
-  (and can remove a file this Session created, when every added line is reverted). Nothing is
-  uploaded.
-* **HTTP routes** — seven authenticated routes under `api/session-changes.*` (list, file, base,
-  watch, open, accept, revert) are served through the DSH connection and require the signed-in user.
-  The two write routes only accept a path this Session already captured, and only the pre-image or
-  that file is written.
+  `_external` store. Accept rewrites captured pre-images; revert writes captured files on disk (and can
+  remove files this Session created). Nothing is uploaded.
+* **HTTP routes** — nine authenticated routes under `api/session-changes.*` (list, file, base,
+  watch, open, accept, revert, apply-file, apply-all) are served through the DSH connection and require
+  the signed-in user. Every write route only accepts a path this Session already captured, and only the
+  pre-image or that file is written.
 * **Open in application** — `api/session-changes.open` spawns the OS opener
   (`cmd.exe /c start` on Windows, `open` on macOS, `xdg-open` elsewhere) for a path the Session
   captured and that is still a regular file. It does not accept arbitrary paths.

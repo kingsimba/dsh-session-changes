@@ -1,5 +1,11 @@
 # Changelog
 
+- 2026-10-27 review: hover a file row for per-file **Accept** / **Revert**, and use the new
+  **Accept All** / **Revert All** row at the top of the list (Revert All asks in place first). The new
+  `apply-file` / `apply-all` routes copy bytes, so binary files are restored exactly. Each mounted tab
+  now names itself on the watch stream and on its writes; the Host leaves that tab's own invalidation
+  echoes (including the `fs.watch` echo of a revert) out of its stream, so a successful action
+  refreshes once instead of twice.
 - 2026-10-27 shortcuts: add an editable Mod+Alt+D command to open the Changes page
 - 2026-10-27 review: accept or revert one change block from the comparison. Hovering a changed block
   shows **Accept** / **Revert**; Accept rewrites the stored pre-image so the block stops reading as a

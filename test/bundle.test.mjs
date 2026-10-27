@@ -234,9 +234,9 @@ test("Full draws the whole file, and the toggle is remembered", async () => {
   assert.match(textOf(tree), /Full/);
 });
 
-/** The buttons of every rendered change block, in whichever layout. */
+/** The buttons of the comparison's change blocks, in whichever layout. */
 function actionButtons(tree) {
-  return withClass(tree, "dsc-act");
+  return withClass(tree, "dsc-actionbar").flatMap((bar) => withClass(bar, "dsc-act"));
 }
 
 test("each changed block offers Accept and Revert on the right side", async () => {
@@ -319,6 +319,10 @@ function recordingHost() {
       writes.push({ url: text, body: JSON.parse(init.body) });
       return respond({ ok: true });
     }
+    if (text.includes("session-changes.apply-file") || text.includes("session-changes.apply-all")) {
+      writes.push({ url: text, body: JSON.parse(init.body) });
+      return respond({ ok: true, files: 1, failed: 0 });
+    }
     return refuse();
   };
   return { fetch, writes };
@@ -338,6 +342,9 @@ test("clicking Accept posts the block's new text against the pre-image digest", 
   assert.equal(writes[0].body.path, "a.js");
   assert.equal(writes[0].body.text, "new");
   assert.equal(writes[0].body.expect, await hashText("old"));
+  // The write names this tab, so the Host can omit its own invalidation echo.
+  assert.equal(typeof writes[0].body.source, "string");
+  assert.equal(writes[0].body.source.length > 0, true);
 });
 
 test("clicking Revert posts the pre-image's text against the live file digest", async () => {
@@ -373,4 +380,101 @@ test("a refused write shows the conflict note instead of failing silently", asyn
   const settled = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
 
   assert.match(textOf(settled), /changed after this diff was drawn/);
+});
+
+test("each file row offers Accept/Revert and the list has an Accept All/Revert All row", async () => {
+  const { fetch } = host();
+  const harness = createHarness({ fetch });
+  const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  const rowActions = withClass(tree, "dsc-row-actions");
+  assert.equal(rowActions.length, 2);
+  for (const group of rowActions) {
+    assert.deepEqual(
+      withClass(group, "dsc-act").map((button) => button.props["data-action"]),
+      ["accept", "revert"],
+    );
+  }
+  const all = withClass(tree, "dsc-all")[0];
+  assert.ok(all !== undefined);
+  assert.deepEqual(
+    withClass(all, "dsc-act").map((button) => button.props["data-action"]),
+    ["accept-all", "revert-all"],
+  );
+});
+
+test("a file row's Accept applies that whole file, named by path", async () => {
+  const { fetch, writes } = recordingHost();
+  const harness = createHarness({ fetch });
+  const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+  const group = withClass(tree, "dsc-row-actions")[0];
+  const accept = withClass(group, "dsc-act").find(
+    (button) => button.props["data-action"] === "accept",
+  );
+  assert.ok(accept !== undefined);
+  accept.props.onClick({ stopPropagation() {} });
+  await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  const write = writes.find((entry) => entry.url.includes("session-changes.apply-file"));
+  assert.ok(write !== undefined);
+  assert.equal(write.body.path, "a.js");
+  assert.equal(write.body.action, "accept");
+  assert.equal(typeof write.body.source, "string");
+});
+
+test("Accept All applies the list at once without asking", async () => {
+  const { fetch, writes } = recordingHost();
+  const harness = createHarness({ fetch });
+  const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+  const accept = withClass(tree, "dsc-act").find(
+    (button) => button.props["data-action"] === "accept-all",
+  );
+  assert.ok(accept !== undefined);
+  accept.props.onClick();
+  await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  const write = writes.find((entry) => entry.url.includes("session-changes.apply-all"));
+  assert.ok(write !== undefined);
+  assert.equal(write.body.action, "accept");
+  assert.equal(typeof write.body.source, "string");
+});
+
+test("Revert All asks first, cancel writes nothing, and confirm reverts the list", async () => {
+  const { fetch, writes } = recordingHost();
+  const harness = createHarness({ fetch });
+  const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  const ask = withClass(tree, "dsc-act").find(
+    (button) => button.props["data-action"] === "revert-all",
+  );
+  assert.ok(ask !== undefined);
+  ask.props.onClick();
+  const asked = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+  assert.match(textOf(asked), /Revert every remaining change in the list\?/);
+  assert.equal(withClass(asked, "dsc-all")[0].props["data-confirm"], "true");
+  assert.equal(writes.length, 0);
+
+  const cancel = withClass(asked, "dsc-act").find(
+    (button) => button.props["data-action"] === "revert-all-cancel",
+  );
+  cancel.props.onClick();
+  const cancelled = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+  assert.equal(withClass(cancelled, "dsc-all")[0].props["data-confirm"], undefined);
+  assert.equal(writes.length, 0);
+
+  const askAgain = withClass(cancelled, "dsc-act").find(
+    (button) => button.props["data-action"] === "revert-all",
+  );
+  askAgain.props.onClick();
+  const askedAgain = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+  const confirm = withClass(askedAgain, "dsc-act").find(
+    (button) => button.props["data-action"] === "revert-all-confirm",
+  );
+  confirm.props.onClick();
+  await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  const write = writes.find((entry) => entry.url.includes("session-changes.apply-all"));
+  assert.ok(write !== undefined);
+  assert.equal(write.body.action, "revert");
+  assert.equal(typeof write.body.source, "string");
 });
