@@ -13,6 +13,7 @@ import { useSelection } from "./hooks/use-selection.js";
 import { useWholeFile } from "./hooks/use-whole-file.js";
 import { fallback } from "./locale/fallback.js";
 import { h, react } from "./react.js";
+import { readSelection, writeSelection } from "./session-memory.js";
 import { readLayout, readWhole, readWrap, writeStored } from "./storage.js";
 import { hashText, spliceLines } from "./text-patch.js";
 import { requestApply, requestApplyAll, requestApplyFile, requestOpen } from "./api.js";
@@ -36,7 +37,7 @@ export function ChangesTab(props) {
   const sessionId = props.sessionId;
   const visible = props.tab === undefined ? true : props.tab.visible !== false;
 
-  const [selectedPath, setSelectedPath] = react.useState(null);
+  const [selectedPath, setSelectedPathState] = react.useState(() => readSelection(sessionId));
   const [wrap, setWrap] = react.useState(readWrap);
   const [whole, setWhole] = react.useState(readWhole);
   const [layout, setLayout] = react.useState(readLayout);
@@ -55,27 +56,45 @@ export function ChangesTab(props) {
 
   const { rootRef, left, dragging, startDrag, nudge } = useResizable();
   const list = useFileList({ sessionId, visible });
-  const counts = useFileCounts({
+  const fileCounts = useFileCounts({
     sessionId,
     files: list.state.files,
     nonce: list.nonce,
     baseVersion,
   });
+  const counts = fileCounts.counts;
 
   /** Re-read the list and both sides of the comparison. */
   const refreshAll = () => list.refresh();
 
   // The Host streams each invalidation; a 1s quiet period folds a save burst into
-  // one re-read of the list and the open comparison.
+  // one re-read of the list and the open comparison. The hooks keep the ready state
+  // during that re-read, so the pane is never unmounted and its scroll survives.
   useAutoRefresh({ sessionId, visible, refresh: refreshAll, clientId });
 
   const rows = buildRows(list.state.files, counts);
   const hasRows = rows.length > 0;
-  useSelection({ rows, selectedPath, setSelectedPath });
+
+  /** Keep the selection in the page-level memory, so a Session switch restores it. */
+  const setSelectedPath = (path) => {
+    setSelectedPathState(path);
+    writeSelection(sessionId, path);
+  };
+
+  // Wait for the list before deciding the remembered file is gone; an empty list
+  // during the first read must not drop the selection restored from memory.
+  useSelection({
+    rows,
+    selectedPath,
+    setSelectedPath,
+    ready: list.state.phase !== "loading",
+  });
   const selected =
     selectedPath === null ? null : (rows.find((row) => row.path === selectedPath) ?? null);
-  const baseState = useBase({ sessionId, path: selectedPath, nonce: list.nonce });
-  const wholeState = useWholeFile({ sessionId, path: selectedPath, nonce: list.nonce });
+  const base = useBase({ sessionId, path: selectedPath, nonce: list.nonce });
+  const wholeFile = useWholeFile({ sessionId, path: selectedPath, nonce: list.nonce });
+  const baseState = base.state;
+  const wholeState = wholeFile.state;
   const comparison = useComparison({ selected, wholeState, baseState });
 
   // A different file has different blocks; a stale failure message would not apply.
@@ -171,9 +190,40 @@ export function ChangesTab(props) {
         requestApply({ sessionId, path: selectedPath, action, text, expect, source: clientId }),
       )
       .then(() => {
-        // The pre-image changed: the row counts' cached copy of it is stale too.
-        if (action === "accept") setBaseVersion((value) => value + 1);
-        refreshAll();
+        // Fold the known result in locally: re-reading the comparison would unmount
+        // the pane for a moment, throwing away its scroll position. The row counts
+        // are patched from the same two texts, so no list re-read is needed either.
+        if (action === "accept") {
+          base.apply({ text });
+          const current =
+            wholeState !== undefined && wholeState !== null
+              ? wholeState.phase === "ready"
+                ? wholeState.text
+                : wholeState.phase === "missing"
+                  ? ""
+                  : null
+              : null;
+          if (current === null) refreshAll();
+          else
+            fileCounts.apply(
+              selectedPath,
+              text,
+              current,
+              wholeState.phase === "missing" ? { missing: true } : undefined,
+            );
+        } else {
+          wholeFile.apply(text);
+          const before =
+            baseState !== undefined && baseState !== null
+              ? baseState.phase === "ready"
+                ? baseState.absent === true
+                  ? ""
+                  : baseState.text
+                : null
+              : null;
+          if (before === null) refreshAll();
+          else fileCounts.apply(selectedPath, before, text);
+        }
       })
       .catch(reportActionError)
       .finally(() => setBusyKey(null));
@@ -193,6 +243,8 @@ export function ChangesTab(props) {
     requestApplyFile({ sessionId, path, action, source: clientId })
       .then(() => {
         if (action === "accept") setBaseVersion((value) => value + 1);
+        // Every change in that file is settled; drop its row before the re-read.
+        fileCounts.forget(path);
         refreshAll();
       })
       .catch(reportActionError)
@@ -211,8 +263,12 @@ export function ChangesTab(props) {
     requestApplyAll({ sessionId, action, source: clientId })
       .then((result) => {
         if (action === "accept") setBaseVersion((value) => value + 1);
-        if (result !== null && typeof result === "object" && (result.failed ?? 0) > 0) {
-          setActionError(t("applyPartial", { count: String(result.failed) }));
+        const failed = result !== null && typeof result === "object" ? (result.failed ?? 0) : 0;
+        if (failed > 0) {
+          setActionError(t("applyPartial", { count: String(failed) }));
+        } else {
+          // The whole list is settled; drop every visible row before the re-read.
+          fileCounts.forget(rows.map((row) => row.path));
         }
         refreshAll();
       })
@@ -259,6 +315,7 @@ export function ChangesTab(props) {
     }),
     h(DetailPane, {
       t,
+      sessionId,
       selected,
       layout,
       whole,

@@ -3,6 +3,7 @@ import { buildDiffModel } from "../diff/model.js";
 import { hunkLabel } from "../diff/rows.js";
 import { languageForPath, useCodeHighlighter } from "../primitives.js";
 import { h, react } from "../react.js";
+import { readScroll, writeScroll } from "../session-memory.js";
 import { BlockActions } from "./block-actions.js";
 import { DiffCells, DiffText } from "./diff-text.js";
 import { comparisonNotes, notesBlock, paneNote } from "./pane-note.js";
@@ -33,9 +34,12 @@ function syncLanes(source, target, guard) {
  * Every changed row carries its block's accept/revert buttons, shown only while
  * that row is hovered.
  *
- * @param props - `{ state, wrap, t, onRetry, busy, actionError, onAction }`.
+ * The pane remembers its scroll offsets per Session, file, scope and mode, and
+ * restores them when the tab is mounted again after a Session switch.
+ *
+ * @param props - `{ state, wrap, t, onRetry, busy, actionError, onAction, viewKey }`.
  */
-export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction }) {
+export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction, viewKey }) {
   const data = state !== undefined && state.phase === "ready" ? state.data : undefined;
   const text = data !== undefined && data.kind === "text" ? data : undefined;
   const language =
@@ -43,11 +47,67 @@ export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction
   const highlighter = useCodeHighlighter === null ? undefined : useCodeHighlighter(language);
   const leftRef = react.useRef(null);
   const rightRef = react.useRef(null);
+  const bodyRef = react.useRef(null);
   const guard = react.useRef(false);
+  const restored = react.useRef(false);
+  const memoryKey = String(viewKey) + "\u0000split\u0000" + (wrap === true ? "wrap" : "nowrap");
   const model = react.useMemo(() => {
     if (text === undefined) return null;
     return buildDiffModel(text, highlighter, "split");
   }, [text, highlighter]);
+
+  /** Keep the current scroll offsets under this view's key. */
+  const remember = () => {
+    if (wrap === true) {
+      const body = bodyRef.current;
+      if (body === null) return;
+      writeScroll(memoryKey, { top: body.scrollTop, left: body.scrollLeft });
+      return;
+    }
+    const left = leftRef.current;
+    const right = rightRef.current;
+    if (left === null && right === null) return;
+    writeScroll(memoryKey, {
+      top: left === null ? 0 : left.scrollTop,
+      left: left === null ? 0 : left.scrollLeft,
+      top2: right === null ? 0 : right.scrollTop,
+      left2: right === null ? 0 : right.scrollLeft,
+    });
+  };
+
+  /** Put the remembered offsets back once the content is on screen. */
+  const restore = () => {
+    const saved = readScroll(memoryKey);
+    if (saved === undefined) return;
+    if (wrap === true) {
+      const body = bodyRef.current;
+      if (body !== null) {
+        body.scrollTop = saved.top ?? 0;
+        body.scrollLeft = saved.left ?? 0;
+      }
+      return;
+    }
+    const left = leftRef.current;
+    if (left !== null) {
+      left.scrollTop = saved.top ?? 0;
+      left.scrollLeft = saved.left ?? 0;
+    }
+    const right = rightRef.current;
+    if (right !== null) {
+      right.scrollTop = saved.top2 ?? saved.top ?? 0;
+      right.scrollLeft = saved.left2 ?? saved.left ?? 0;
+    }
+  };
+
+  react.useEffect(() => {
+    restored.current = false;
+  }, [memoryKey]);
+  react.useEffect(() => {
+    if (restored.current || model === null) return;
+    restored.current = true;
+    restore();
+  }, [memoryKey, model]);
+  react.useEffect(() => () => remember(), [memoryKey, wrap]);
 
   const note = paneNote(state, t, onRetry);
   if (note !== null) return note;
@@ -86,7 +146,7 @@ export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction
             cells.push(cell);
         }
       }
-    return h("div", { className: "dsc-dbody" }, [
+    return h("div", { className: "dsc-dbody", ref: bodyRef, onScroll: remember }, [
       actionNote,
       head,
       h(
@@ -169,7 +229,7 @@ export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction
     return out;
   };
 
-  return h("div", { className: "dsc-dbody" }, [
+  return h("div", { className: "dsc-dbody", ref: bodyRef, onScroll: remember }, [
     actionNote,
     head,
     h("div", { className: "dsc-lanes", key: "l" }, [
@@ -179,7 +239,10 @@ export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction
           className: "dsc-lane dsc-lane-left",
           key: "left",
           ref: leftRef,
-          onScroll: (event) => syncLanes(event.currentTarget, rightRef.current, guard),
+          onScroll: (event) => {
+            syncLanes(event.currentTarget, rightRef.current, guard);
+            remember();
+          },
         },
         lane("left"),
       ),
@@ -189,7 +252,10 @@ export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction
           className: "dsc-lane dsc-lane-right",
           key: "right",
           ref: rightRef,
-          onScroll: (event) => syncLanes(event.currentTarget, leftRef.current, guard),
+          onScroll: (event) => {
+            syncLanes(event.currentTarget, leftRef.current, guard);
+            remember();
+          },
         },
         lane("right"),
       ),

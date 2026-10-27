@@ -11,6 +11,7 @@ import { SplitDiff } from "./split-diff.js";
  */
 export function DetailBody({
   t,
+  sessionId,
   selected,
   layout,
   whole,
@@ -49,6 +50,9 @@ export function DetailBody({
 
   if (note !== null) return h("div", { className: "dsc-note" }, note);
 
-  const shared = { state: payloadState, wrap, t, busy, actionError, onAction };
+  // One memory key per Session + file + scope; each layout adds its own mode.
+  const viewKey =
+    String(sessionId) + "\u0000" + selected.path + "\u0000" + (whole === true ? "full" : "hunks");
+  const shared = { state: payloadState, wrap, t, busy, actionError, onAction, viewKey };
   return layout === "inline" ? h(InlineDiff, shared) : h(SplitDiff, shared);
 }

@@ -305,12 +305,19 @@ test("a deletion-only block offers its buttons on the red half, not an empty pad
 
 /**
  * A Host that records the review write, so a click can be checked end to end.
- * @returns `{ fetch, writes }`.
+ * @returns `{ fetch, writes, reads }`.
  */
 function recordingHost() {
   const writes = [];
+  const reads = [];
   const fetch = async (url, init) => {
     const text = String(url);
+    if (
+      text.includes("session-changes.list") ||
+      text.includes("session-changes.base") ||
+      text.includes("session-changes.file")
+    )
+      reads.push(text);
     if (text.includes("session-changes.list"))
       return respond({ files: [{ path: "a.js", display: "a.js" }] });
     if (text.includes("session-changes.base")) return respond({ text: "old" });
@@ -325,15 +332,16 @@ function recordingHost() {
     }
     return refuse();
   };
-  return { fetch, writes };
+  return { fetch, writes, reads };
 }
 
 test("clicking Accept posts the block's new text against the pre-image digest", async () => {
-  const { fetch, writes } = recordingHost();
+  const { fetch, writes, reads } = recordingHost();
   const harness = createHarness({ fetch });
   const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
   const accept = actionButtons(tree).find((button) => button.props["data-action"] === "accept");
   assert.ok(accept !== undefined);
+  const readsBefore = reads.length;
   accept.props.onClick({ stopPropagation() {} });
   await harness.settle({ sessionId: "session-1", tab: { visible: true } });
 
@@ -345,6 +353,42 @@ test("clicking Accept posts the block's new text against the pre-image digest", 
   // The write names this tab, so the Host can omit its own invalidation echo.
   assert.equal(typeof writes[0].body.source, "string");
   assert.equal(writes[0].body.source.length > 0, true);
+  // The block is applied from the texts already on screen: nothing is re-read.
+  assert.equal(reads.length, readsBefore);
+});
+
+test("accepting a block updates the diff in place without re-reading the comparison", async () => {
+  const baseText = "one\ntwo\nthree\nfour\nfive";
+  const fileText = "one\nTWO\nthree\nFOUR\nfive";
+  const reads = [];
+  const fetch = async (url, init) => {
+    const text = String(url);
+    if (text.includes("session-changes.accept")) return respond({ ok: true });
+    if (
+      text.includes("session-changes.list") ||
+      text.includes("session-changes.base") ||
+      text.includes("session-changes.file")
+    )
+      reads.push(text);
+    if (text.includes("session-changes.list"))
+      return respond({ files: [{ path: "a.js", display: "a.js" }] });
+    if (text.includes("session-changes.base")) return respond({ text: baseText });
+    if (text.includes("session-changes.file")) return respond({ text: fileText });
+    return refuse();
+  };
+  const harness = createHarness({ fetch });
+  const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+  assert.equal(withClass(tree, "dsc-actionbar").length, 2);
+  const readsBefore = reads.length;
+  const accept = actionButtons(tree).find((button) => button.props["data-action"] === "accept");
+  accept.props.onClick({ stopPropagation() {} });
+  const settled = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  // The first block is folded in locally, the second one still needs review, and
+  // the file stays selected rather than flashing through a loading note.
+  assert.equal(withClass(settled, "dsc-actionbar").length, 1);
+  assert.equal(withClass(settled, "dsc-row")[0].props["data-selected"], "true");
+  assert.equal(reads.length, readsBefore);
 });
 
 test("clicking Revert posts the pre-image's text against the live file digest", async () => {
@@ -477,4 +521,23 @@ test("Revert All asks first, cancel writes nothing, and confirm reverts the list
   assert.ok(write !== undefined);
   assert.equal(write.body.action, "revert");
   assert.equal(typeof write.body.source, "string");
+});
+
+test("a row whose counts are still loading shows an ellipsis, never undefined", async () => {
+  const pending = new Promise(() => {});
+  const fetch = async (url) => {
+    const text = String(url);
+    if (text.includes("session-changes.list"))
+      return respond({ files: [{ path: "a.js", display: "a.js" }] });
+    if (text.includes("session-changes.base") || text.includes("session-changes.file"))
+      return pending;
+    return refuse();
+  };
+  const harness = createHarness({ fetch });
+  const tree = await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  assert.doesNotMatch(textOf(tree), /undefined/);
+  const rowCounts = withClass(tree, "dsc-counts")[0];
+  assert.ok(rowCounts !== undefined);
+  assert.equal(textOf(rowCounts), "…");
 });

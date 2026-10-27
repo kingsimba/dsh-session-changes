@@ -63,7 +63,10 @@ instead of opening nothing.
 * **⤴** opens the selected file in its default application — VSCode, if that is what the extension is
   associated with. It opens the **live file on disk**, so you can edit it there.
 * **↗** opens the same file in the built-in **Review** tab, if you want the full-width view.
-* Selections survive a refresh of the list; **↻** re-reads both the list and the comparison.
+* Selections survive a refresh of the list, and **the selected file and the comparison's scroll
+  position are remembered per Session** across a sidebar switch; **↻** re-reads both the list and
+  the comparison. A count that has not been read yet shows `…` instead of `+undefined`, and files
+  with no remaining change are filtered before the list paints.
 * **The list and the open comparison keep themselves current.** While the tab is visible, the Host
   streams one frame whenever a listed file changes on disk, and one whenever it captures a new
   pre-image; the tab waits **1 s** for the burst to settle, then re-reads both. No polling. **↻** stays
@@ -121,6 +124,12 @@ A tab never re-reads in response to the invalidation its own action caused: the 
 the tab, and the Host leaves that tab's echo (including the filesystem echo of a revert) out
 of its watch stream. Other tabs still refresh for it, and every refresh the user causes
 happens once.
+
+Accepting or reverting one block is applied from the two texts already on screen, so the
+comparison is not re-read at all: the block disappears (or comes back) in place and your
+scroll position stays where it was. Background refreshes keep the previous comparison
+mounted while new data arrives, so an Agent edit or a whole-file action does not jump the
+pane back to the top either.
 
 ## Editing
 

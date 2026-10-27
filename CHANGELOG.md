@@ -1,5 +1,12 @@
 # Changelog
 
+- 2026-10-27 review: remember the selected file, the last row counts and the comparison's scroll
+  offsets per Session, so switching Session or workspace and coming back restores them. Rows never
+  render `+undefined` while counts load (a quiet `…` instead), and files with no remaining change no
+  longer flash in before the counts arrive.
+- 2026-10-27 review: apply a block's accept/revert from the texts already on screen instead of
+  re-reading the comparison, and keep the previous comparison mounted while a background refresh
+  runs. The diff no longer unmounts, so accepting a block no longer jumps the pane back to the top.
 - 2026-10-27 review: hover a file row for per-file **Accept** / **Revert**, and use the new
   **Accept All** / **Revert All** row at the top of the list (Revert All asks in place first). The new
   `apply-file` / `apply-all` routes copy bytes, so binary files are restored exactly. Each mounted tab

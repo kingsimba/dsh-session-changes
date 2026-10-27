@@ -3,6 +3,7 @@ import { buildDiffModel } from "../diff/model.js";
 import { hunkLabel } from "../diff/rows.js";
 import { languageForPath, useCodeHighlighter } from "../primitives.js";
 import { h, react } from "../react.js";
+import { readScroll, writeScroll } from "../session-memory.js";
 import { BlockActions } from "./block-actions.js";
 import { DiffText } from "./diff-text.js";
 import { comparisonNotes, notesBlock, paneNote } from "./pane-note.js";
@@ -13,18 +14,49 @@ import { comparisonNotes, notesBlock, paneNote } from "./pane-note.js";
  * split layout, so either scope can use either one. A changed row carries its
  * block's accept/revert buttons, shown only while that row is hovered.
  *
- * @param props - `{ state, wrap, t, onRetry, busy, actionError, onAction }`.
+ * The scroll offset is remembered per Session, file, scope and mode, and restored
+ * when the tab is mounted again after a Session switch.
+ *
+ * @param props - `{ state, wrap, t, onRetry, busy, actionError, onAction, viewKey }`.
  */
-export function InlineDiff({ state, wrap, t, onRetry, busy, actionError, onAction }) {
+export function InlineDiff({ state, wrap, t, onRetry, busy, actionError, onAction, viewKey }) {
   const data = state !== undefined && state.phase === "ready" ? state.data : undefined;
   const text = data !== undefined && data.kind === "text" ? data : undefined;
   const language =
     text !== undefined && languageForPath !== null ? languageForPath(text.path) : undefined;
   const highlighter = useCodeHighlighter === null ? undefined : useCodeHighlighter(language);
+  const bodyRef = react.useRef(null);
+  const restored = react.useRef(false);
+  const memoryKey = String(viewKey) + "\u0000inline\u0000" + (wrap === true ? "wrap" : "nowrap");
   const model = react.useMemo(() => {
     if (text === undefined) return null;
     return buildDiffModel(text, highlighter, "inline");
   }, [text, highlighter]);
+
+  /** Keep the current scroll offsets under this view's key. */
+  const remember = () => {
+    const body = bodyRef.current;
+    if (body !== null) writeScroll(memoryKey, { top: body.scrollTop, left: body.scrollLeft });
+  };
+
+  /** Put the remembered offsets back once the content is on screen. */
+  const restore = () => {
+    const saved = readScroll(memoryKey);
+    const body = bodyRef.current;
+    if (saved === undefined || body === null) return;
+    body.scrollTop = saved.top ?? 0;
+    body.scrollLeft = saved.left ?? 0;
+  };
+
+  react.useEffect(() => {
+    restored.current = false;
+  }, [memoryKey]);
+  react.useEffect(() => {
+    if (restored.current || model === null) return;
+    restored.current = true;
+    restore();
+  }, [memoryKey, model]);
+  react.useEffect(() => () => remember(), [memoryKey, wrap]);
 
   const note = paneNote(state, t, onRetry);
   if (note !== null) return note;
@@ -81,7 +113,7 @@ export function InlineDiff({ state, wrap, t, onRetry, busy, actionError, onActio
       ? null
       : h("div", { className: "dsc-dnote dsc-actionnote", key: "act" }, actionError);
 
-  return h("div", { className: "dsc-dbody" }, [
+  return h("div", { className: "dsc-dbody", ref: bodyRef, onScroll: remember }, [
     actionNote,
     notesBlock(comparisonNotes(data, model, t)),
     h(

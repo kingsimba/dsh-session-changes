@@ -1,6 +1,7 @@
 import { readBase, readWholeFile } from "../api.js";
 import { countChangedLines } from "../diff/counts.js";
 import { react } from "../react.js";
+import { readCounts, writeCounts } from "../session-memory.js";
 
 /** Most files one roll-up reads; the rest keep no live numbers. */
 export const COUNT_CAP = 60;
@@ -21,16 +22,24 @@ function lineCount(text) {
  * numbers the same pair. One read per file (the pre-image is cached for the Session,
  * it never changes), capped so a large Session cannot turn a refresh into a scan.
  * Accepting a block rewrites that pre-image, so `baseVersion` drops the cache and
- * reads the bases again.
+ * reads the bases again; `apply` updates one row straight from the texts a block
+ * action already has, without a re-read.
  *
  * @param input - `{ sessionId, files, nonce, baseVersion }`; `nonce` re-runs the
  *   read, and a new `baseVersion` also forgets the cached pre-images.
- * @returns `{ [path]: { added, deleted, missing, binary, oversized } }`.
+ * @returns `{ counts, apply, forget }`: the per-path counts, a local updater, and a
+ *   way to drop rows a whole-file or whole-list action settled.
  */
 export function useFileCounts({ sessionId, files, nonce, baseVersion }) {
-  const [counts, setCounts] = react.useState({});
+  // Seed from the Session's remembered counts, so a tab remounted by a Session
+  // switch shows numbers immediately and a fully accepted file stays hidden.
+  const [counts, setCounts] = react.useState(() => readCounts(sessionId));
+  const latest = react.useRef(counts);
+  latest.current = counts;
   const bases = react.useRef(new Map());
   const version = react.useRef(baseVersion);
+  // Bumped by `apply`, so a read that started earlier cannot overwrite fresher data.
+  const generation = react.useRef(0);
 
   react.useEffect(() => {
     if (version.current !== baseVersion) {
@@ -41,9 +50,14 @@ export function useFileCounts({ sessionId, files, nonce, baseVersion }) {
       setCounts({});
       return undefined;
     }
+    const targets = files.slice(0, COUNT_CAP);
+    // Before the list arrives there is nothing to read; keep the remembered counts
+    // instead of replacing them with an empty object.
+    if (targets.length === 0) return undefined;
     let live = true;
     const controller = new AbortController();
-    const targets = files.slice(0, COUNT_CAP);
+    const at = generation.current;
+    const loaded = new Map();
 
     void (async () => {
       const next = {};
@@ -55,7 +69,7 @@ export function useFileCounts({ sessionId, files, nonce, baseVersion }) {
             if (before === undefined) {
               const base = await readBase(sessionId, file.path, controller.signal);
               before = base.absent === true ? "" : base.text;
-              bases.current.set(key, before);
+              loaded.set(key, before);
             }
             if (before.length > MAX_COUNT_CHARS) return;
             const after = await readWholeFile(sessionId, file.path, controller.signal);
@@ -66,7 +80,7 @@ export function useFileCounts({ sessionId, files, nonce, baseVersion }) {
             const known = error !== null && error !== undefined;
             if (known && error.missing === true) {
               // A vanished path reads as "everything deleted", like the pane.
-              const before = bases.current.get(key);
+              const before = bases.current.get(key) ?? loaded.get(key);
               next[file.path] =
                 typeof before === "string"
                   ? { added: 0, deleted: lineCount(before), missing: true }
@@ -80,7 +94,10 @@ export function useFileCounts({ sessionId, files, nonce, baseVersion }) {
           }
         }),
       );
-      if (live && !controller.signal.aborted) setCounts(next);
+      if (!live || controller.signal.aborted || generation.current !== at) return;
+      for (const [key, value] of loaded) bases.current.set(key, value);
+      writeCounts(sessionId, next);
+      setCounts(next);
     })();
 
     return () => {
@@ -89,5 +106,49 @@ export function useFileCounts({ sessionId, files, nonce, baseVersion }) {
     };
   }, [sessionId, files, nonce, baseVersion]);
 
-  return counts;
+  /**
+   * Replace one row's numbers and cached pre-image with the texts a block action
+   * already produced. Ignored for texts too large to have had live numbers.
+   *
+   * @param path - the file's path as the list spells it.
+   * @param before - the new pre-image text.
+   * @param after - the current text the row should be numbered against.
+   * @param extra - flags the row needs (`{ missing: true }`).
+   */
+  const apply = (path, before, after, extra) => {
+    const key = String(sessionId) + ":" + path;
+    generation.current += 1;
+    bases.current.set(key, before);
+    if (before.length > MAX_COUNT_CHARS || after.length > MAX_COUNT_CHARS) return;
+    const numbered = countChangedLines(before, after);
+    // A row with nothing left to show is dropped even when the path is missing:
+    // accepting every deletion of a removed file leaves no change to report.
+    const shown =
+      extra !== undefined && numbered.added === 0 && numbered.deleted === 0 ? undefined : extra;
+    const next = {
+      ...latest.current,
+      [path]: shown === undefined ? numbered : { ...numbered, ...shown },
+    };
+    writeCounts(sessionId, next);
+    setCounts(next);
+  };
+
+  /**
+   * Drop rows that a whole-file or whole-list action just settled, without waiting
+   * for the re-read. Their pre-images are updated separately; the remaining counts
+   * are confirmed by the refresh that follows.
+   *
+   * @param paths - one path, or a list of paths.
+   */
+  const forget = (paths) => {
+    const list = Array.isArray(paths) ? paths : [paths];
+    if (list.length === 0) return;
+    generation.current += 1;
+    const next = { ...latest.current };
+    for (const path of list) next[path] = { added: 0, deleted: 0 };
+    writeCounts(sessionId, next);
+    setCounts(next);
+  };
+
+  return { counts, apply, forget };
 }

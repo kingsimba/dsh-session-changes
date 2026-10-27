@@ -2,6 +2,31 @@
 
 写给下一位接手的人（或新 Session 的 AI）。读完这一页你应该能：知道它是什么、现在到哪一步、怎么验证、还剩什么。
 
+> **2026-10-27 v0.15.2「切换 Session 恢复现场 + 不再闪现 undefined」**：
+> ① 新增 `session-memory.js`：按 Session 记住**选中的文件路径**、**最后一次行计数**、
+> **对比区滚动偏移**（按 session/file/scope/layout/wrap 分 key）。页面级内存，刷新页面即清空。
+> ② `TabBody` 给 `ChangesTab` 加 `key={sessionId}`：侧栏复用 slot 换 Session 时干净重挂载；
+> 挂载时从 memory 恢复选中与计数，`useSelection` 增加 `ready` 门闩，列表首次 loading 的空数组
+> 不会清掉恢复的选中。
+> ③ 列表行计数改为从 memory 播种：切换回来立刻有数字；完全 accept 的文件在用缓存计数过滤后
+> **不会先出现再消失**。未读到的计数显示安静的 `…`，不再渲染 `+undefined −undefined`
+> （`Counts` 组件）。`useFileCounts` 新增 `forget(paths)`，整文件/整列表动作成功后先隐藏对应行。
+> ④ `SplitDiff` / `InlineDiff` 在内容真正渲染出来后恢复 `scrollTop/scrollLeft`（左右 lane 各一份），
+> 滚动时实时写回；`viewKey` 由 Session + 文件 + Full/hunks 组成，布局/换行再分 key。
+> ⑤ `useBase` / `useWholeFile` 增加 `loadedKey` 门闩：文件切换后的第一帧不再拿上一个文件的文本
+> 参与 diff（否则会短暂混合，也会让滚动恢复作用在旧内容上）。
+> 详见 §3.4。
+
+> **2026-10-27 v0.15.1「accept 不重读、滚动位置不丢」**：
+> ① 逐块 accept/revert 成功后不再 `refreshAll()`：`useBase` / `useWholeFile` 新增 `apply()`，
+> 用已经算好的文本直接更新对比；`useFileCounts` 新增 `apply()`，用同一对文本更新该行计数。
+> 因此一次块操作**零重读**（测试用请求计数断言），diff 组件不卸载、滚动条不动。
+> ② `useBase` / `useWholeFile` 改为 **stale-while-revalidate**：非首次读取时保留上一次 ready 状态，
+> 不再先置 `loading`。以前每次自动/手动/整批刷新都会把 diff 换成一句 loading，组件卸载后
+> 重新挂载 → 滚动回到开头；现在后台刷新在原地更新，滚动位置保留。
+> ③ `useFileCounts` 加了 generation 守卫，避免动作前发出的旧读取在 `apply()` 之后覆盖新计数/前像缓存。
+> 详见 §3.3。
+
 > **2026-10-27 v0.15.0「整文件 / 整列表操作 + 去掉双重刷新」**：
 > ① 左侧每个文件行悬停出现 `Accept` / `Revert`，作用于**该文件的全部剩余改动**；列表顶部新增
 > `Accept All` / `Revert All` 行，**Revert All 先在行内问一次确认**（不弹 `window.confirm`）。
@@ -9,8 +34,7 @@
 > 二进制不会被 UTF-8 解码破坏；apply-all 对每个文件独立计数，单个失败不会中断整批。
 > ③ 修「accept 后刷新两次」：每个挂载的 Tab 生成 `clientId`，watch 流带 `client=id`，写请求带 `source:id`；
 > Host 用 `source` 标记本次写造成的 `file` 帧（revert 的 `fs.watch` 回显用 1.5s 的 `recentWrites`
-> 按路径归因），对应 Tab 的流直接跳过，其他 Tab 照常刷新。客户端仍保留动作成功后的即时 `refreshAll()`，
-> 现在只会读一次。
+> 按路径归因），对应 Tab 的流直接跳过，其他 Tab 照常刷新。
 > 详见 §3.1、§3.2 与 §4 的新文件。
 
 > **2026-10-27 v0.14.0「逐块接受 / 还原」**：diff 视图里每个红/绿改动块在鼠标悬停时出现
@@ -71,7 +95,7 @@
 - 代码：`C:\Users\kingsimba\Documents\deepseek-harness\default-workspace\plugins\dsh-session-changes`
 - 安装方式：Plugins → Add plugin → npm 包名 `dsh-session-changes` / Git URL / 本地绝对路径；开发时
   `~/.dsh/profiles/desktop/node_modules/dsh-session-changes` 是指向这里的 junction，所以**改代码立即生效**（刷新方式见 §5）
-- 版本：`0.15.0`，git 仓库就在插件目录里，tag 从 `v0.3.0` 到 `v0.12.1`（`v0.13.x`、`v0.14.x`、`v0.15.x` 待打）
+- 版本：`0.15.2`，git 仓库就在插件目录里，tag 从 `v0.3.0` 到 `v0.12.1`（`v0.13.x`、`v0.14.x`、`v0.15.x` 待打）
 
 ## 2. 现在能做什么
 
@@ -130,8 +154,10 @@
   - revert：当前文本的 `[newStart-1, newStart-1+newLines)` 换成 `deleted`。
   然后 `hashText(被替换侧原文)`（WebCrypto SHA-256）作为 `expect` POST 给 Host。
 - Host 在写前重新读取被替换侧并算同一个 SHA-256：不一致 → `409 {error:"changed"}`，不写。
-  成功后 `notify(sessionId,{t:"file",source})`；客户端立即 `refreshAll()`，accept 还 bump `baseVersion`
-  让 `useFileCounts` 丢掉前像缓存。冲突时显示 `applyConflict` 提示并刷新，绝不静默覆盖。
+  成功后 `notify(sessionId,{t:"file",source})`；**执行动作的 Tab 不再重读**，而是把已算好的
+  `text` 通过 `useBase.apply()` / `useWholeFile.apply()` 直接写进对比，并用同一对文本调用
+  `useFileCounts.apply()` 更新该行计数——diff 不卸载，滚动位置不动。冲突时显示 `applyConflict`
+  提示，并 `refreshAll()` 一次以显示 Host 实际持有的内容（这次刷新也不卸载，见 §3.3）。
 - 新建文件整体 revert（`text===""` 且 `.absent` 存在）→ `rm` 该文件，返回 `{ok:true,deleted:true}`。
 - 注意：**accept 会覆盖前像里的旧行**，没有第二份备份；误接受只能靠文件自身 VCS 找回。
 
@@ -157,6 +183,49 @@
   - 已知残余：revert 后 1.5s 内 Agent 对**同一文件**的写入会被误归因，动作 Tab 会跳过那一帧
     （其他 Tab 仍刷新），下一次失效或手动 ↻ 会补上。
 
+### 3.3 不重读与滚动保持（v0.15.1）
+
+- `use-base.js` / `use-whole-file.js` 返回 `{ state, apply }`：
+  - effect 里只在 **key 变化**（session 或 path 变）时 `setState({phase:"loading"})`；同一文件因
+    `nonce` 重读时保留上一次 ready 状态。以前无条件置 loading 会让 `buildComparison` 变 pending，
+    `DetailBody` 把 diff 换成一句 note，`SplitDiff` 卸载，滚动条回到 0。
+  - `apply()` 直接写入已知文本；用 `version` ref 让**动作前发出的在途读取**无法覆盖它；
+    key 不匹配（用户在请求期间切了文件）时忽略。
+- `use-file-counts.js` 返回 `{ counts, apply }`：
+  - `apply(path, before, after, extra)` 更新一行计数并把新前像写进缓存；
+  - effect 用 `generation` ref 守卫：`apply` 之后，之前那轮读取即使晚到也不会覆盖计数/缓存；
+    新读到的前像先收集在局部 Map，通过守卫后才提交。
+- 逐块 accept/revert：本地 `apply` 两边，**不发任何 GET**；行计数若归零，列表行自然消失
+  （`buildRows` 的既有规则）。`baseVersion` 只在**整文件/整列表 accept** 时 bump，用来丢弃
+  所有前像缓存并重读一次。
+- 整文件/整列表操作仍然 `refreshAll()`（需要刷新其他文件的计数与二进制标记）；靠
+  stale-while-revalidate 保住已挂载的 diff 和滚动位置。自动刷新、手动 ↻ 同样受益。
+
+### 3.4 切换 Session 的现场恢复（v0.15.2）
+
+- `session-memory.js`（页面级 Map，刷新页面即清空）：
+  - `readSelection/writeSelection(sessionId, path)`；
+  - `readCounts/writeCounts(sessionId, counts)`；
+  - `readScroll/writeScroll(key, {top,left,top2?,left2?})`。
+- `components/tab-body.js`：`h(ChangesTab, { ...props, key: props.sessionId })`。侧栏换 Session/workspace
+  时强制重挂载，`useState(() => readSelection(sessionId))` 才能读到该 Session 的现场。
+- `hooks/use-selection.js`：新增 `ready`；只有列表不再 `loading` 才决定「选中是否还在列表里」。
+  否则首次 mount 的空 `files` 会立刻把恢复的选中清成 null。
+- `hooks/use-file-counts.js`：
+  - 初始 state 从 `readCounts(sessionId)` 播种；`files` 为空时 effect 直接返回，**不要**用 `{}` 覆盖缓存；
+  - 每次读完成、每次 `apply()`、每次 `forget()` 都写回 memory；
+  - `forget(paths)` 用于整文件/整列表动作成功后立即隐藏行（0/0），随后 `refreshAll` 再核对。
+- `components/counts.js`：`added`/`deleted` 为 undefined 时渲染 muted `…`，不再出现 `+undefined −undefined`。
+- 滚动恢复：
+  - `DetailBody` 组成 `viewKey = sessionId + "\0" + path + "\0" + (full|hunks)`，传给两个 diff 组件；
+  - `SplitDiff` / `InlineDiff` 再按 layout + wrap 加后缀得到 `memoryKey`；
+  - 内容 `model` 首次非空时 `restore()`（左右 lane 分别恢复，wrapped/inline 恢复 `.dsc-dbody`），
+    之后同一 key 的 model 变化不再覆盖用户滚动；
+  - `onScroll` 实时 `remember()`；key 变化/卸载时也尝试保存（DOM 已卸载时为 no-op）。
+  - `restored` 按 `memoryKey` 重置：换文件、换 Session、换布局/换行都会重新恢复对应 key 的位置。
+- `useBase` / `useWholeFile`：返回 `state: loadedKey.current === key ? state : undefined`。选择切换后的
+  第一帧若还拿着上一个文件的数据，会混合出错误 diff，并让滚动恢复作用在旧内容上；门闩把它挡掉。
+
 **客户端**（`lib/client.js`）：
 
 - `Overall`：`base`（或 absent→空）vs `wholeState.text`（当前文件）→ `diffLines` + `toHunks` → 交给渲染器。**这条路径是精确的，不会漂移。**
@@ -174,7 +243,7 @@
 
 ```
 plugins/dsh-session-changes/
-├─ package.json          # dsh.bundle.patch + dsh.client + pnpm scripts（version 0.15.0）
+├─ package.json          # dsh.bundle.patch + dsh.client + pnpm scripts（version 0.15.2）
 ├─ cordis.patch.yml      # insert: session-changes 行
 ├─ README.md             # 面向用户的功能说明（含 Development 一节）
 ├─ HANDOVER.md           # 本文件
@@ -194,11 +263,11 @@ src/client/
 ├─ changes-tab.js         # 状态与编排（唯一持有页面级 useState 的组件）
 ├─ hooks/
 │   ├─ use-file-list.js     # list（前像存储的索引）+ 刷新计数
-│   ├─ use-file-counts.js   # 每行 +N −M：pre-image → 当前文件（带缓存与上限，标 missing/binary/oversized）
+│   ├─ use-file-counts.js   # 每行 +N −M：pre-image → 当前文件（缓存、上限、missing/binary/oversized；apply 本地更新一行）
 │   ├─ use-auto-refresh.js  # 订阅 Host 的失效流（fs.watch / 捕获通知），debounce 1s 后刷新
-│   ├─ use-selection.js     # 选中项跟随列表重建（按 path）
-│   ├─ use-whole-file.js    # .file，missing/binary/oversized 归一成 phase
-│   ├─ use-base.js          # .base
+│   ├─ use-selection.js     # 选中项跟随列表重建（按 path）；ready 之前不裁决
+│   ├─ use-whole-file.js    # .file，missing/binary/oversized 归一成 phase；重读保留 ready；apply 本地写入
+│   ├─ use-base.js          # .base；重读保留 ready；apply 本地写入
 │   ├─ use-comparison.js    # buildComparison 的 memo
 │   └─ use-resizable.js     # 宽度、拖拽、键盘微调、ResizeObserver
 ├─ components/
@@ -226,6 +295,7 @@ src/client/
 │   └─ model.js             # 按 ROW_CAP 截断 + 编号 + 成对 + 高亮 + block 的统一模型
 ├─ locale/{en,zh,fallback}.js
 ├─ api.js                 # 所有 fetch（list/file/base + watch + accept/revert + apply-file/all）
+├─ session-memory.js      # 页面级按 Session 记住选中/计数/滚动（切换 Session 恢复现场）
 ├─ client-id.js           # 每个 Tab 的 clientId：watch 与写请求都带它，Host 据此跳过自己的回显
 ├─ text-patch.js          # spliceLines（按块拼完整文本）+ hashText（SHA-256 expect）
 ├─ comparison.js          # 对比构建：pre-image → 当前文件
@@ -370,8 +440,9 @@ window.__ModuleLoader__.load({ id, factory: (require) => { ... } })
 - `test/host.test.mjs`：桩 `ctx` + 临时工作区，验九条路由（含 409 冲突、二进制按字节复制、整批 `{files,failed}`、
   watch 对自身写入回显的过滤）。
 - `test/watch.test.mjs`：1 s debounce、ndjson 解析、watch 的 `client` 参数。
+- `test/memory.test.mjs`：Session 级选中、计数、滚动缓存的读写与清除。
 
-五个测试文件共 66 条断言，`pnpm test` 单进程约 7.5 s（大头是渲染 harness 每次 settle 的 200 ms 级等待）。
+六个测试文件共 71 条断言，`pnpm test` 单进程约 8 s（大头是渲染 harness 每次 settle 的 200 ms 级等待）。
 
 **等价性证据**：`scripts/compare-bundles.mjs <旧 bundle>` 用同一套 stub 渲染 11 个场景（By turn / Overall ×
 Split / Inline × Full、已删除、二进制、drift、空会话、列表失败），元素树（tag + 可序列化 props + 文本）
