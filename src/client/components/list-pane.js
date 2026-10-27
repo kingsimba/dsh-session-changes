@@ -1,3 +1,4 @@
+import { MIN_RIGHT } from "../constants.js";
 import { h } from "../react.js";
 import { AllRow } from "./all-row.js";
 
@@ -43,7 +44,14 @@ export function ListPane(props) {
 
   return h(
     "div",
-    { className: "dsc-pane dsc-left", key: "l", style: { flex: "0 0 " + String(left) + "px" } },
+    {
+      className: "dsc-pane dsc-left",
+      key: "l",
+      style: {
+        flex: "0 0 " + String(left) + "px",
+        maxWidth: "calc(100% - " + String(MIN_RIGHT) + "px)",
+      },
+    },
     [
       h("div", { className: "dsc-head", key: "h" }, [
         h("span", { className: "dsc-title", key: "t" }, t("title")),

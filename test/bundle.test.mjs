@@ -447,6 +447,27 @@ test("each file row offers Accept/Revert and the list has an Accept All/Revert A
   );
 });
 
+test("reopening the tab re-reads the list but not every comparison", async () => {
+  const { fetch, reads } = recordingHost();
+  const harness = createHarness({ fetch });
+  await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+  const comparisonReads = () =>
+    reads.filter(
+      (url) => url.includes("session-changes.base") || url.includes("session-changes.file"),
+    ).length;
+  const before = comparisonReads();
+  assert.equal(before > 0, true);
+
+  // A collapse stops the watch, and the reopen re-reads the list. An unchanged
+  // list must not look like a new one: otherwise the selected row (and the whole
+  // comparison) is rebuilt, and every row's counts are read again, on every
+  // expand/collapse of the sidebar.
+  await harness.settle({ sessionId: "session-1", tab: { visible: false } });
+  await harness.settle({ sessionId: "session-1", tab: { visible: true } });
+
+  assert.equal(comparisonReads(), before);
+});
+
 test("a file row's Accept applies that whole file, named by path", async () => {
   const { fetch, writes } = recordingHost();
   const harness = createHarness({ fetch });

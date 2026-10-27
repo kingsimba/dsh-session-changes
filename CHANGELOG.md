@@ -1,5 +1,13 @@
 # Changelog
 
+- 2026-10-28 perf: keep the comparison's payload, its diff model, and the rendered pane stable while the
+  sidebar expands, collapses, or resizes. Those gestures used to re-render the tab body with a fresh row
+  object, which defeated the comparison memo: a long diff in **Full** scope was re-diffed, re-highlighted,
+  and rebuilt row by row while the panel was sliding, so the animation stuttered. The selected row now
+  survives a geometry-only render, the sidebar re-read of an unchanged file list keeps the previous array
+  (so reopening no longer re-reads every file's counts and comparison), and the list width is capped in
+  CSS instead of by a `ResizeObserver` that reset the remembered width and re-rendered the tab on every
+  frame of a width change.
 - 2026-10-27 review: remember the selected file, the last row counts and the comparison's scroll
   offsets per Session, so switching Session or workspace and coming back restores them. Rows never
   render `+undefined` while counts load (a quiet `…` instead), and files with no remaining change no

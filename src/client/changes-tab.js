@@ -72,7 +72,11 @@ export function ChangesTab(props) {
   // during that re-read, so the pane is never unmounted and its scroll survives.
   useAutoRefresh({ sessionId, visible, refresh: refreshAll, clientId });
 
-  const rows = buildRows(list.state.files, counts);
+  // The sidebar re-renders this tab whenever it expands, collapses, or resizes —
+  // none of which change the file list. Keeping the rows object (and with it the
+  // selected row and the comparison) stable turns those renders into cheap ones:
+  // the diff is not diffed, re-highlighted and re-created for a width change.
+  const rows = react.useMemo(() => buildRows(list.state.files, counts), [list.state.files, counts]);
   const hasRows = rows.length > 0;
 
   /** Keep the selection in the page-level memory, so a Session switch restores it. */
@@ -89,8 +93,10 @@ export function ChangesTab(props) {
     setSelectedPath,
     ready: list.state.phase !== "loading",
   });
-  const selected =
-    selectedPath === null ? null : (rows.find((row) => row.path === selectedPath) ?? null);
+  const selected = react.useMemo(
+    () => (selectedPath === null ? null : (rows.find((row) => row.path === selectedPath) ?? null)),
+    [rows, selectedPath],
+  );
   const base = useBase({ sessionId, path: selectedPath, nonce: list.nonce });
   const wholeFile = useWholeFile({ sessionId, path: selectedPath, nonce: list.nonce });
   const baseState = base.state;
@@ -107,12 +113,16 @@ export function ChangesTab(props) {
     if (hasRows !== true) setConfirmRevertAll(false);
   }, [hasRows]);
 
-  const totals = rows.reduce(
-    (sum, row) => ({
-      added: sum.added + (row.added ?? 0),
-      deleted: sum.deleted + (row.deleted ?? 0),
-    }),
-    { added: 0, deleted: 0 },
+  const totals = react.useMemo(
+    () =>
+      rows.reduce(
+        (sum, row) => ({
+          added: sum.added + (row.added ?? 0),
+          deleted: sum.deleted + (row.deleted ?? 0),
+        }),
+        { added: 0, deleted: 0 },
+      ),
+    [rows],
   );
 
   const toggleWrap = () => {
@@ -276,6 +286,52 @@ export function ChangesTab(props) {
       .finally(() => setBusyKey(null));
   };
 
+  // The comparison is the expensive half of this tab: a long file is thousands of
+  // rows, and the sidebar re-renders the tab body whenever it expands, collapses,
+  // or resizes. Keeping one element per actual change lets React skip that subtree
+  // for a geometry-only render instead of rebuilding (and re-highlighting) it.
+  // Every value the action closures read is a dependency, so a cached element
+  // cannot act on a stale baseline, file, or busy state.
+  const detail = react.useMemo(
+    () =>
+      h(DetailPane, {
+        t,
+        sessionId,
+        selected,
+        layout,
+        whole,
+        wrap,
+        opening,
+        openFailed,
+        comparison,
+        baseState,
+        busy: busyKey !== null,
+        actionError,
+        onAction: applyBlock,
+        onToggleLayout: toggleLayout,
+        onToggleWhole: toggleWhole,
+        onOpenFile: openInApp,
+        onToggleWrap: toggleWrap,
+      }),
+    [
+      t,
+      sessionId,
+      selected,
+      selectedPath,
+      layout,
+      whole,
+      wrap,
+      opening,
+      openFailed,
+      comparison,
+      baseState,
+      wholeState,
+      rows,
+      busyKey,
+      actionError,
+    ],
+  );
+
   const listRows = buildListRows({
     rows,
     selectedPath,
@@ -313,24 +369,6 @@ export function ChangesTab(props) {
       onPointerDown: startDrag,
       onKeyDown: nudge,
     }),
-    h(DetailPane, {
-      t,
-      sessionId,
-      selected,
-      layout,
-      whole,
-      wrap,
-      opening,
-      openFailed,
-      comparison,
-      baseState,
-      busy: busyKey !== null,
-      actionError,
-      onAction: applyBlock,
-      onToggleLayout: toggleLayout,
-      onToggleWhole: toggleWhole,
-      onOpenFile: openInApp,
-      onToggleWrap: toggleWrap,
-    }),
+    detail,
   ]);
 }

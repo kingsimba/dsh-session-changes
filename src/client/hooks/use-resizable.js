@@ -4,7 +4,13 @@ import { readLeft, writeStored } from "../storage.js";
 
 /**
  * The draggable divider between the list and the comparison: width state, pointer
- * drag, keyboard nudge, and the resize observer that keeps both panes usable.
+ * drag, and keyboard nudge.
+ *
+ * The width the user chose is left alone when the sidebar changes size: the pane
+ * carries a CSS `max-width` that keeps the comparison usable, so expanding or
+ * collapsing the sidebar never rewrites (and shrinks) the remembered width. An
+ * observer here would also re-render the whole tab — long comparison included — on
+ * every frame of a width transition, which is exactly when it must stay quiet.
  *
  * @returns `{ rootRef, left, dragging, startDrag, nudge }`: attach the ref to the
  *   tab root, spread the handlers onto the divider.
@@ -20,17 +26,6 @@ export function useResizable() {
     const width = box === null ? Number.POSITIVE_INFINITY : box.getBoundingClientRect().width;
     return Math.max(MIN_LEFT, Math.min(value, Math.max(MIN_LEFT, width - MIN_RIGHT)));
   };
-
-  react.useEffect(() => {
-    const box = rootRef.current;
-    if (box === null || typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(() => {
-      const width = box.getBoundingClientRect().width;
-      setLeft((value) => Math.min(value, Math.max(MIN_LEFT, width - MIN_RIGHT)));
-    });
-    observer.observe(box);
-    return () => observer.disconnect();
-  }, []);
 
   const startDrag = (event) => {
     if (event.button !== undefined && event.button !== 0) return;

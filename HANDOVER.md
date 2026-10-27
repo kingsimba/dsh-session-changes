@@ -2,6 +2,20 @@
 
 写给下一位接手的人（或新 Session 的 AI）。读完这一页你应该能：知道它是什么、现在到哪一步、怎么验证、还剩什么。
 
+> **2026-10-28「侧栏收起/展开不再卡长 diff」**：
+> ① 现象：diff 很长（尤其 **Full** 作用域）时，点右侧栏的收起/展开，动画会明显卡顿。
+> ② 根因：侧栏每次展开/收起都会让 `sidebar.right.pane.tab` 的 body 重渲染一次；`buildRows` 每次
+> 返回新行对象 → `selected` 变新 → `useComparison` 失效 → 整个文件重新 diff；`DetailBody` 每次
+> 又构造新的 payload → `SplitDiff`/`InlineDiff` 的 `buildDiffModel`（编号、成对、Shiki 高亮）也
+> 失效。于是**只因为面板宽度/可见性变化**，长 diff 就被重新 diff、重新高亮、重新创建上万节点。
+> ③ 修复：`rows`、`selected`、`totals` 用 `useMemo`；`DetailPane` 用 `useMemo` 缓存元素，并在依赖里
+> 列全动作闭包会读的 baseline/whole/selection/busy（只换几何时 React 直接跳过整棵对比树）；
+> `DetailBody` 的 payload 改由 `useMemo` 按真正的内容输入生成；`useFileList` 对**未变化的列表**
+> 保留原数组（展开时不再把每个文件的计数与对比全部重读）；`useResizable` 去掉 `ResizeObserver`，
+> 改用左栏 CSS `max-width` 兜底（原来它会在宽度变化时逐帧 `setState`，还会把用户拖好的宽度压小）。
+> 回归测试：`bundle.test.mjs` 的 "reopening the tab re-reads the list but not every comparison"。
+> 详见 §3.5 与 §7。
+
 > **2026-10-27 v0.15.2「切换 Session 恢复现场 + 不再闪现 undefined」**：
 > ① 新增 `session-memory.js`：按 Session 记住**选中的文件路径**、**最后一次行计数**、
 > **对比区滚动偏移**（按 session/file/scope/layout/wrap 分 key）。页面级内存，刷新页面即清空。
@@ -239,6 +253,22 @@
 - `By turn`：仍用 Host 的 per-turn hunk（`api/changes.diff`）。
 - `By turn + Full`：仍走旧的 `reverseHunks` 重建；重建失败会**降级为「当前文件 + 标注」**（`AnnotatedPane`）并显示提示，不再死路。
 
+### 3.5 几何/可见性变化不重算 diff（2026-10-28）
+
+- 侧栏用 `transform` 滑出、grid 轨道做过渡；但 `sidebar.right.pane.tab` 的 body 仍会因 layout store
+  变化而重渲染。因此「面板动一下」不能等于「diff 重算一次」。
+- 稳定链：`useFileList` 对相同列表保留原数组 → `buildRows` 按 `[files, counts]` memo → `selected`
+  按 `[rows, selectedPath]` memo → `useComparison` 不失效 → `DetailBody` 的 payload memo →
+  `buildDiffModel` 复用（编号、成对、Shiki 高亮都不再重跑）。
+- `changes-tab.js` 用 `useMemo` 缓存 `DetailPane` 元素。React 在 `oldProps === newProps` 时会直接
+  bail out，所以只换几何时整棵对比树被跳过。依赖必须列全 `applyBlock` / `applyFile` / `applyAll`
+  闭包会读的值（`selectedPath`、`baseState`、`wholeState`、`rows`、`busyKey` 等），否则缓存元素会
+  拿旧基线去 accept/revert。
+- `components/list-pane.js` 用 `maxWidth: calc(100% - MIN_RIGHT)` 兜底，替代 `useResizable` 里原来的
+  `ResizeObserver`：后者会在宽度过渡的每一帧 `setState`，并把用户拖好的宽度压到 180 且不再恢复。
+- 不要把 `busy` / `actionError` 放进 `DetailBody` 的 payload memo：payload 只描述内容；按钮状态变化
+  时重渲染外壳即可，模型和行不需要重算。
+
 ## 4. 目录与文件
 
 ```
@@ -269,7 +299,7 @@ src/client/
 │   ├─ use-whole-file.js    # .file，missing/binary/oversized 归一成 phase；重读保留 ready；apply 本地写入
 │   ├─ use-base.js          # .base；重读保留 ready；apply 本地写入
 │   ├─ use-comparison.js    # buildComparison 的 memo
-│   └─ use-resizable.js     # 宽度、拖拽、键盘微调、ResizeObserver
+│   └─ use-resizable.js     # 宽度、拖拽、键盘微调（宽度上限交给左栏 CSS max-width）
 ├─ components/
 │   ├─ list-pane.js         # 左栏：标题/统计/状态 + 顶部 Accept All / Revert All
 │   ├─ all-row.js           # 整列表操作行（Revert All 的行内确认）
@@ -442,7 +472,7 @@ window.__ModuleLoader__.load({ id, factory: (require) => { ... } })
 - `test/watch.test.mjs`：1 s debounce、ndjson 解析、watch 的 `client` 参数。
 - `test/memory.test.mjs`：Session 级选中、计数、滚动缓存的读写与清除。
 
-六个测试文件共 71 条断言，`pnpm test` 单进程约 8 s（大头是渲染 harness 每次 settle 的 200 ms 级等待）。
+六个测试文件共 72 条断言，`pnpm test` 单进程约 8 s（大头是渲染 harness 每次 settle 的 200 ms 级等待）。
 
 **等价性证据**：`scripts/compare-bundles.mjs <旧 bundle>` 用同一套 stub 渲染 11 个场景（By turn / Overall ×
 Split / Inline × Full、已删除、二进制、drift、空会话、列表失败），元素树（tag + 可序列化 props + 文本）
