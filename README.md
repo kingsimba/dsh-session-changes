@@ -136,25 +136,28 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
 
 ## Development
 
-The shipped browser half is a **generated** file. Sources live in `src/client/`, and `npm run build`
+The shipped browser half is a **generated** file. Sources live in `src/client/`, and `pnpm run build`
 bundles them into `lib/client.js` — one classic script in the Host's `__ModuleLoader__` wrapper, which is
 what the sidebar actually loads.
 
+The checkout is managed with **pnpm**: `pnpm-lock.yaml` is the lockfile, and `packageManager` pins the
+pnpm version.
+
 ```
-npm install        # rollup + prettier
-npm run build      # src/client/** -> lib/client.js
-npm run format     # prettier --write .
-npm run verify     # format:check + build:check + tests
+pnpm install       # rollup + prettier
+pnpm run build     # src/client/** -> lib/client.js
+pnpm run format    # prettier --write .
+pnpm run verify    # format:check + build:check + tests
 ```
 
 * `lib/client.js` is committed, because the plugin runs straight from this directory. Never edit it by
-  hand: `npm run build:check` fails when the committed bundle no longer matches the sources.
+  hand: `pnpm run build:check` fails when the committed bundle no longer matches the sources.
 * The Host half (`lib/index.js`) is plain Node ESM and needs no build step.
-* `npm test` renders the built bundle against a stubbed Host (`test/support/harness.mjs`), unit-tests the
+* `pnpm test` renders the built bundle against a stubbed Host (`test/support/harness.mjs`), unit-tests the
   diff engine, the 1 s debounce and the frame parser, and exercises the Host routes (including the watch
   stream) against a throwaway workspace, so a refactor that changes the markup or a route fails loudly. It
   runs in one process (`--test-isolation=none`) so it also works inside DSH's own sandbox;
-  `npm run test:isolated` uses the runner's usual per-file processes instead.
+  `pnpm run test:isolated` uses the runner's usual per-file processes instead.
 * `node scripts/compare-bundles.mjs <old-client.js>` renders two builds side by side over eleven scenarios
   and diffs the element trees — the check that proved the `src/client` split changed nothing.
 * Layout: `src/client/index.js` registers the tab; `changes-tab.js` holds state; `hooks/` owns every read;
@@ -163,7 +166,7 @@ npm run verify     # format:check + build:check + tests
 ## Updating a local install
 
 The installer links the profile to this directory (`link:…` in the profile's `package.json`), so edits here
-are live after a build: change `src/client/**`, run `npm run build`, then **Ctrl+R**. Only a change to the
+are live after a build: change `src/client/**`, run `pnpm run build`, then **Ctrl+R**. Only a change to the
 Host half (`lib/index.js`, `cordis.patch.yml`, `package.json`) needs the plugin re-composed — disable and
 re-enable it on its Plugins page.
 

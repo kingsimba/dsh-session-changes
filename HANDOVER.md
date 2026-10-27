@@ -39,7 +39,7 @@
 > **2026-10-26 02:16 v0.12.1 对比色再调浅**：红/绿底 `12%` → **`8%`**（rgba 回退 `.09` → `.06`），
 > 三处规则一起改（`.dsc-cell` / `.dsc-lrow` / `.dsc-urow`），覆盖 Split 网格、Split 双 lane、Inline 单栏，
 > 降级视图用的 `.dsc-lrow` 也一起变浅。2px 左侧色条、行号与 `±` 号染色保持原样，所以「哪边改了」仍一眼可见。
-> 只动 `src/client/styles.css` → `npm run build` 后强刷即可，Host 不用重挂载。
+> 只动 `src/client/styles.css` → `pnpm run build` 后强刷即可，Host 不用重挂载。
 
 ---
 
@@ -106,7 +106,7 @@
 
 ```
 plugins/dsh-session-changes/
-├─ package.json          # dsh.bundle.patch + dsh.client + npm scripts（version 0.12.0）
+├─ package.json          # dsh.bundle.patch + dsh.client + pnpm scripts（version 0.12.0）
 ├─ cordis.patch.yml      # insert: session-changes 行
 ├─ README.md             # 面向用户的功能说明（含 Development 一节）
 ├─ HANDOVER.md           # 本文件
@@ -184,9 +184,9 @@ src/client/
 
 ## 5. 改动怎么生效（很容易踩）
 
-- **改浏览器端**（`src/client/**`）→ `npm run build` → 浏览器强刷 `Ctrl+Shift+R`
+- **改浏览器端**（`src/client/**`）→ `pnpm run build` → 浏览器强刷 `Ctrl+Shift+R`
 - **改了 `lib/index.js` / `cordis.patch.yml` / `package.json`** → 必须让 Host 重新挂载：重启 DSH，或 Plugins 里把 bundle 关开一次
-- ⚠️ **`lib/client.js` 是生成物**：手改会被下次 build 覆盖，`npm run build:check` 也会报 stale。
+- ⚠️ **`lib/client.js` 是生成物**：手改会被下次 build 覆盖，`pnpm run build:check` 也会报 stale。
 - ⚠️ **别用进程 PID / 启动时间判断「重启成功没有」**：实测点过重启之后，Electron 主进程的 `StartTime` 仍是旧的，但 Host 的 capture 已经开始工作（桌面壳疑似在原地重载 Host，或走了 `dsh-hmr`）。**唯一可靠的判据是：让 Agent 改一个文件，看 `<workspace>/.dsh/session-changes/` 有没有出现/更新。**
 - ⚠️ **不要拨插件列表里那个 row 开关**：它会往 `~/.dsh/profiles/desktop/cordis.patch.yml` 写
   `- id: session-changes` + `disabled: true`，再打开也不会清掉，结果就是「插件消失」。
@@ -227,7 +227,7 @@ src/client/
 5. 新建一个文件 → 应有 `<name>.absent`（0 B）
 6. Changes → `Overall` → `Full`：应显示「会话开始 → 现在」的整文件对比，**行号连续**，且**不出现**「无法还原该对比的起点」
 7. 切 `Inline` / `Split` 各看一遍；点不同 turn chip，左侧列表应随之变化
-8. 静态检查与单测：`npm run verify`（= prettier --check + `build.mjs --check` + `node --test test/`）。
+8. 静态检查与单测：`pnpm run verify`（= prettier --check + `build.mjs --check` + `node --test test/`）。
    没有 node_modules 时至少跑 `node --check lib/index.js`、`node --check lib/client.js`。
 9. Host 逻辑脱机自测（不需要跑 App，也不用登录）：
    - 用桩 `ctx` 加载 `lib/index.js`、调用 `mod.apply(ctx)`，桩要提供
@@ -237,10 +237,11 @@ src/client/
    - 现成脚本：`node .tmp/route-check.mjs`（在 `default-workspace` 下跑；里面的 `SESSION` 常量按需改）
    - §6 那 8 条就是这么验的，可直接复用
 
-> **在 DSH 自己的沙箱里**：`npm install` 会被拒（npm 的 lifecycle 要 spawn 子进程，报 `spawn EPERM`），
-> 但 `npm run build` / `format` / `test` / `verify` 都能正常跑。`npm test` 特意用了
+> **在 DSH 自己的沙箱里**：本机实测 `pnpm install` 可以完成（pnpm 10 默认跳过依赖的 build 脚本，
+> 不像 `npm install` 那样因 lifecycle spawn 子进程报 `spawn EPERM`）；本机的 pnpm store 落在仓库内的
+> `.pnpm-store/`（已加进 `.gitignore`）。`pnpm run build` / `format` / `test` / `verify` 都能正常跑。`pnpm test` 特意用了
 > `--test-isolation=none`（单进程），因为 `node --test` 默认给每个测试文件 spawn 一个子进程，在沙箱里同样 EPERM；
-> 想要并行隔离的那套（沙箱外）用 `npm run test:isolated`。实在没有 node_modules 时，退回
+> 想要并行隔离的那套（沙箱外）用 `pnpm run test:isolated`。实在没有 node_modules 时，退回
 > `node --check lib/index.js`、`node --check lib/client.js`。
 
 ## 8. 待办 / 已知缺口
@@ -258,9 +259,9 @@ src/client/
 
 ## 9. 约定
 
-- 每次改完：`npm run format` → `npm run verify` → `git add -A && git commit`，必要时打 tag（`v0.x.y`）
-  （在 DSH 沙箱里 npm 不可用时，见 §7 末尾的 node 直调写法）
-- **不要手改 `lib/client.js`**：改 `src/client/**` 后 `npm run build`；提交时把生成物一起提交
+- 每次改完：`pnpm run format` → `pnpm run verify` → `git add -A && git commit`，必要时打 tag（`v0.x.y`）
+  （在 DSH 沙箱里 pnpm 不可用时，见 §7 末尾的 node 直调写法）
+- **不要手改 `lib/client.js`**：改 `src/client/**` 后 `pnpm run build`；提交时把生成物一起提交
 - 提交信息用英文一句话；版本号在 `package.json`
 - 回滚：`git checkout <tag> -- .`；profile 回滚见 §5
 
@@ -296,7 +297,7 @@ window.__ModuleLoader__.load({ id, factory: (require) => { ... } })
 - `test/host.test.mjs`：桩 `ctx` + 临时工作区，验四条路由（list 折叠、file 现读/ENOENT、base 的
   原文/absent/not-captured/越界、exists 的 file/missing）。
 
-三个文件共 30 条断言，`npm test` 单进程跑完约 0.3s。
+三个文件共 30 条断言，`pnpm test` 单进程跑完约 0.3s。
 
 **等价性证据**：`scripts/compare-bundles.mjs <旧 bundle>` 用同一套 stub 渲染 11 个场景（By turn / Overall ×
 Split / Inline × Full、已删除、二进制、drift、空会话、列表失败），元素树（tag + 可序列化 props + 文本）

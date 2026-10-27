@@ -102,7 +102,7 @@ if (process.argv.includes("--check")) {
     console.log(`up to date: ${relative(ROOT, TARGET)} (${script.length} bytes)`);
   } else {
     console.error(
-      `stale: ${relative(ROOT, TARGET)} does not match src/client — run \`npm run build\``,
+      `stale: ${relative(ROOT, TARGET)} does not match src/client — run \`pnpm run build\``,
     );
     process.exitCode = 1;
   }

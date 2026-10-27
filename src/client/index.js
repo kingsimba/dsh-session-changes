@@ -3,7 +3,7 @@
  * changed and draws the selected file's comparison beside the list.
  *
  * The shipped artifact is one classic script inside `window.__ModuleLoader__`, so
- * this directory is the real source: `npm run build` bundles it into
+ * this directory is the real source: `pnpm run build` bundles it into
  * `lib/client.js`. See scripts/build.mjs.
  */
 

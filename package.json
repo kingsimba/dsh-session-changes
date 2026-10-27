@@ -1,6 +1,7 @@
 {
   "name": "dsh-session-changes",
   "version": "0.13.1",
+  "packageManager": "pnpm@10.33.0",
   "description": "An always-available Changes page for the DeepSeek Harness Web GUI: every file this Session changed, with the selected file's side-by-side pre-image comparison beside the list.",
   "type": "module",
   "main": "lib/index.js",
@@ -27,7 +28,7 @@
     "format:check": "prettier --check .",
     "test": "node --test --test-isolation=none test/*.test.mjs",
     "test:isolated": "node --test test/",
-    "verify": "npm run format:check && npm run build:check && npm test"
+    "verify": "pnpm run format:check && pnpm run build:check && pnpm test"
   },
   "repository": {
     "type": "git",

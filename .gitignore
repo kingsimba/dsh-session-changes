@@ -9,3 +9,7 @@ Thumbs.db
 
 # Local scratch: bundle baselines and ad-hoc probes.
 .baseline-client.js
+
+# pnpm store (when pnpm keeps it inside the checkout) and debug logs.
+.pnpm-store/
+pnpm-debug.log*
