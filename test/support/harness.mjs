@@ -184,11 +184,17 @@ export function respond(payload) {
 
 /**
  * Boot the bundle against the stubs and expose a render loop.
- * @param input - `{ storage, fetch, source }`: initial localStorage entries, the
- *   Host, and the bundle text (defaults to the built `lib/client.js`).
+ * @param input - `{ storage, fetch, source, target }`: initial localStorage entries,
+ *   the Host, the bundle text (defaults to the built `lib/client.js`), and the page
+ *   target `ctx.sidebarRight.commandTarget()` returns (undefined for no Session).
  * @returns the harness.
  */
-export function createHarness({ storage = new Map(), fetch = async () => refuse(), source } = {}) {
+export function createHarness({
+  storage = new Map(),
+  fetch = async () => refuse(),
+  source,
+  target = { sessionId: "session-1" },
+} = {}) {
   const fakeReact = createReact();
   const fakeDocument = {
     querySelector: () => null,
@@ -222,8 +228,8 @@ export function createHarness({ storage = new Map(), fetch = async () => refuse(
   });
 
   let body = null;
-  const registrations = { tabType: null, dictionaries: null };
-  client.apply({
+  const registrations = { tabType: null, dictionaries: null, shortcut: null, opened: [] };
+  const context = {
     locale: {
       bind: () => translate,
       register: (namespace, dictionaries) => {
@@ -237,7 +243,21 @@ export function createHarness({ storage = new Map(), fetch = async () => refuse(
         return () => {};
       },
     },
-    sidebarRight: { openResource: () => {} },
+    sidebarRight: {
+      openResource: () => {},
+      // `null` is the test's way of saying "no Session on screen": the real
+      // service returns undefined there.
+      commandTarget: () => target ?? undefined,
+      openTabFromTarget: (kind, value) => {
+        registrations.opened.push({ kind, target: value });
+      },
+    },
+    shortcuts: {
+      register: (definition) => {
+        registrations.shortcut = definition;
+        return () => {};
+      },
+    },
     slots: {
       inject: (_name, register) => register(),
       register: (_config, component) => {
@@ -246,7 +266,11 @@ export function createHarness({ storage = new Map(), fetch = async () => refuse(
       },
     },
     effect: (effect) => effect(),
-  });
+  };
+  // The real derived context is the same shape; optional-service callbacks run
+  // immediately here so a registration is visible to the assertions.
+  context.inject = (_deps, callback) => callback(context);
+  client.apply(context);
 
   let tree = null;
 

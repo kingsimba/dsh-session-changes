@@ -1,4 +1,5 @@
 import { h } from "../react.js";
+import { BlockActions } from "./block-actions.js";
 
 /**
  * One cell's text, coloured by the shared highlighter when it produced spans.
@@ -15,12 +16,14 @@ export function DiffText({ text, spans }) {
 
 /**
  * Both lanes of one row, tokens included: the wrapped grid draws a row as two
- * sibling cells instead of two scroll-synced lanes.
+ * sibling cells instead of two scroll-synced lanes. The row's change block rides
+ * along, so the new half carries its accept/revert buttons — or the old half when
+ * the row has no new side (a pure deletion).
  *
- * @param props - `{ row, marks, keyPrefix }`.
+ * @param props - `{ row, marks, keyPrefix, t, busy, onAction }`.
  * @returns the left cell, then the right cell.
  */
-export function DiffCells({ row, marks, keyPrefix }) {
+export function DiffCells({ row, marks, keyPrefix, t, busy, onAction }) {
   const cells = [];
   for (const side of ["left", "right"]) {
     const cell = row[side];
@@ -34,6 +37,7 @@ export function DiffCells({ row, marks, keyPrefix }) {
             : "add";
     const map = marks === undefined ? undefined : marks[side === "left" ? "old" : "new"];
     const spans = cell === undefined || map === undefined ? undefined : map.get(cell.no);
+    const actionable = side === "right" ? row.right !== undefined : row.right === undefined;
     cells.push(
       h(
         "div",
@@ -47,6 +51,7 @@ export function DiffCells({ row, marks, keyPrefix }) {
           cell === undefined
             ? h("span", { className: "dsc-code", key: "c" })
             : h(DiffText, { key: "c", text: cell.text, spans }),
+          actionable ? h(BlockActions, { key: "a", t, block: row.block, busy, onAction }) : null,
         ],
       ),
     );

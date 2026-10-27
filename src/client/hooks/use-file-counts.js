@@ -20,15 +20,23 @@ function lineCount(text) {
  * The pane diffs the stored pre-image against the file as it stands now, so the list
  * numbers the same pair. One read per file (the pre-image is cached for the Session,
  * it never changes), capped so a large Session cannot turn a refresh into a scan.
+ * Accepting a block rewrites that pre-image, so `baseVersion` drops the cache and
+ * reads the bases again.
  *
- * @param input - `{ sessionId, files, nonce }`; `nonce` re-runs the read.
+ * @param input - `{ sessionId, files, nonce, baseVersion }`; `nonce` re-runs the
+ *   read, and a new `baseVersion` also forgets the cached pre-images.
  * @returns `{ [path]: { added, deleted, missing, binary, oversized } }`.
  */
-export function useFileCounts({ sessionId, files, nonce }) {
+export function useFileCounts({ sessionId, files, nonce, baseVersion }) {
   const [counts, setCounts] = react.useState({});
   const bases = react.useRef(new Map());
+  const version = react.useRef(baseVersion);
 
   react.useEffect(() => {
+    if (version.current !== baseVersion) {
+      bases.current.clear();
+      version.current = baseVersion;
+    }
     if (typeof sessionId !== "string" || sessionId === "") {
       setCounts({});
       return undefined;
@@ -79,7 +87,7 @@ export function useFileCounts({ sessionId, files, nonce }) {
       live = false;
       controller.abort();
     };
-  }, [sessionId, files, nonce]);
+  }, [sessionId, files, nonce, baseVersion]);
 
   return counts;
 }

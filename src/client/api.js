@@ -1,4 +1,12 @@
-import { BASE_ROUTE, FILE_ROUTE, LIST_ROUTE, OPEN_ROUTE, WATCH_ROUTE } from "./constants.js";
+import {
+  ACCEPT_ROUTE,
+  BASE_ROUTE,
+  FILE_ROUTE,
+  LIST_ROUTE,
+  OPEN_ROUTE,
+  REVERT_ROUTE,
+  WATCH_ROUTE,
+} from "./constants.js";
 
 /**
  * The query string of one route read.
@@ -130,6 +138,49 @@ export async function requestOpen(sessionId, path) {
     credentials: "same-origin",
   });
   if (!response.ok) throw new Error(String(response.status));
+}
+
+/**
+ * Apply one change block: `accept` writes the block's new lines into the stored
+ * pre-image, `revert` writes the block's old lines back into the live file.
+ *
+ * The Host refuses a write whose `expect` digest no longer matches the side it is
+ * about to replace, so an agent edit that landed while the diff was open cannot be
+ * clobbered; the refusal is flagged `conflict` for the caller to explain.
+ *
+ * @param input - `{ sessionId, path, action, text, expect }`: the block's new full
+ *   text for one side, and the digest of the text it replaces (`null` to skip).
+ * @returns the Host's answer, `{ ok }` plus `deleted` when a revert removed a file.
+ */
+export async function requestApply({ sessionId, path, action, text, expect }) {
+  const route = action === "accept" ? ACCEPT_ROUTE : REVERT_ROUTE;
+  const response = await fetch(route, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    credentials: "same-origin",
+    cache: "no-store",
+    body: JSON.stringify({ sessionId, path, text, expect }),
+  });
+  if (!response.ok) {
+    let reason = String(response.status);
+    try {
+      const refused = await response.json();
+      if (refused !== null && typeof refused === "object" && typeof refused.error === "string")
+        reason = refused.error;
+    } catch (_error) {
+      // A body that is not JSON leaves the status as the reason.
+    }
+    const refusal = new Error(reason);
+    refusal.conflict = reason === "changed";
+    refusal.uncaptured = reason === "not-captured";
+    throw refusal;
+  }
+  try {
+    const payload = await response.json();
+    return payload !== null && typeof payload === "object" ? payload : { ok: true };
+  } catch (_error) {
+    return { ok: true };
+  }
 }
 
 /**

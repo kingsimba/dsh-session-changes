@@ -37,17 +37,23 @@ export function splitRows(rows) {
     for (let at = 0; at < Math.max(dels.length, adds.length); at += 1) {
       const left = dels[at];
       const right = adds[at];
+      // Both cells of a paired row belong to the same change block; carrying the
+      // block on the row lets a pad half (or either lane) draw its review buttons.
+      const block = left === undefined ? right.block : left.block;
       out.push({
         ...(left === undefined ? {} : { left }),
         ...(right === undefined ? {} : { right }),
+        ...(block === undefined ? {} : { block }),
       });
     }
     dels = [];
     adds = [];
   };
   for (const row of rows) {
-    if (row.kind === "del") dels.push({ no: row.old, text: row.text, kind: "del" });
-    else if (row.kind === "add") adds.push({ no: row.new, text: row.text, kind: "add" });
+    if (row.kind === "del")
+      dels.push({ no: row.old, text: row.text, kind: "del", block: row.block });
+    else if (row.kind === "add")
+      adds.push({ no: row.new, text: row.text, kind: "add", block: row.block });
     else {
       flush();
       out.push({

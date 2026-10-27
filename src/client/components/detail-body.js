@@ -6,9 +6,21 @@ import { SplitDiff } from "./split-diff.js";
  * What the comparison area shows: the diff of the stored pre-image against the file
  * as it stands now, or the note explaining why there is none.
  *
- * @param props - the current selection, the computed comparison and its sources.
+ * @param props - the current selection, the computed comparison and its sources,
+ *   plus the review action state (`busy`, `actionError`, `onAction`).
  */
-export function DetailBody({ t, selected, layout, whole, wrap, comparison, baseState }) {
+export function DetailBody({
+  t,
+  selected,
+  layout,
+  whole,
+  wrap,
+  comparison,
+  baseState,
+  busy,
+  actionError,
+  onAction,
+}) {
   if (selected === null) return h("div", { className: "dsc-note" }, t("pick"));
 
   let note = null;
@@ -37,7 +49,6 @@ export function DetailBody({ t, selected, layout, whole, wrap, comparison, baseS
 
   if (note !== null) return h("div", { className: "dsc-note" }, note);
 
-  return layout === "inline"
-    ? h(InlineDiff, { state: payloadState, wrap, t })
-    : h(SplitDiff, { state: payloadState, wrap, t });
+  const shared = { state: payloadState, wrap, t, busy, actionError, onAction };
+  return layout === "inline" ? h(InlineDiff, shared) : h(SplitDiff, shared);
 }

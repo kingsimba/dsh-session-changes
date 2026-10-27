@@ -8,7 +8,7 @@
  */
 
 import { TabBody } from "./components/tab-body.js";
-import { KIND, NS, TYPE_ID } from "./constants.js";
+import { COMMAND_ID, KIND, NS, TYPE_ID } from "./constants.js";
 import { en } from "./locale/en.js";
 import { zh } from "./locale/zh.js";
 import { h } from "./react.js";
@@ -53,6 +53,7 @@ export function apply(ctx) {
         guide: [
           {
             id: KIND,
+            commandId: COMMAND_ID,
             order: 45,
             title: () => t("guideTitle"),
             description: () => t("guideDescription"),
@@ -69,4 +70,39 @@ export function apply(ctx) {
       ),
     "session-changes: tab body",
   );
+  // Optional: the tab type and its body keep working in a client without the
+  // shortcut service, while a client that has one gets an editable command in
+  // the Keyboard shortcuts dialog (Mod+Alt+D by default).
+  ctx.inject(["shortcuts"], (ctx) => {
+    ctx.effect(
+      () =>
+        ctx.shortcuts.register({
+          id: COMMAND_ID,
+          label: () => t("shortcutOpen"),
+          aliases: ["session changes", "changes", "diff"],
+          defaults: {
+            "desktop:macos": { code: "KeyD", modifiers: ["primary", "alt"] },
+            "desktop:windows": { code: "KeyD", modifiers: ["primary", "alt"] },
+            "desktop:linux": { code: "KeyD", modifiers: ["primary", "alt"] },
+            "web:macos": { code: "KeyD", modifiers: ["primary", "alt"] },
+            "web:windows": { code: "KeyD", modifiers: ["primary", "alt"] },
+          },
+          regions: ["page", "editable", "terminal"],
+          modals: [],
+          resolve: ({ target: element }) => {
+            const target = ctx.sidebarRight.commandTarget(element);
+            if (target === undefined) {
+              return { status: "blocked", reason: t("shortcutNoSession") };
+            }
+            return {
+              status: "handled",
+              run: () => {
+                ctx.sidebarRight.openTabFromTarget(KIND, target);
+              },
+            };
+          },
+        }),
+      "session-changes: shortcut",
+    );
+  });
 }

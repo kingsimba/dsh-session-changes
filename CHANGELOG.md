@@ -1,5 +1,11 @@
 # Changelog
 
+- 2026-10-27 shortcuts: add an editable Mod+Alt+D command to open the Changes page
+- 2026-10-27 review: accept or revert one change block from the comparison. Hovering a changed block
+  shows **Accept** / **Revert**; Accept rewrites the stored pre-image so the block stops reading as a
+  change, Revert writes the pre-image's lines back to the file on disk (reverting every line of a file
+  the Session created removes it). Both are guarded by a SHA-256 digest of the side the browser last
+  read, so an edit that landed after the diff was drawn is refused with `409` instead of overwritten.
 - 2026-10-27 chore: switch the checkout to pnpm
 - 2026-10-27 docs: add a Changes page screenshot to the README
 - 2026-10-27 release: make the 0.13.1 package publishable — drop `private`, add `engines.dsh`,

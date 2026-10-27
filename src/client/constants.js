@@ -7,6 +7,9 @@ export const TYPE_ID = "dsh-session-changes";
 /** The page kind the guide entry opens. */
 export const KIND = "session-changes";
 
+/** The command id this page contributes to the keyboard-shortcut catalog. */
+export const COMMAND_ID = "session.changes.open";
+
 /** The authenticated routes served by this package's Host half. */
 export const LIST_ROUTE = "api/session-changes.list";
 export const FILE_ROUTE = "api/session-changes.file";
@@ -15,6 +18,10 @@ export const WATCH_ROUTE = "api/session-changes.watch";
 
 /** Native open of a captured file, served by this package's Host half. */
 export const OPEN_ROUTE = "api/session-changes.open";
+
+/** The review writes: accept one change block into the pre-image, or revert it. */
+export const ACCEPT_ROUTE = "api/session-changes.accept";
+export const REVERT_ROUTE = "api/session-changes.revert";
 
 /** Persisted preferences: left pane width, wrap, whole-file scope, layout. */
 export const WIDTH_KEY = "dsh-session-changes.left";

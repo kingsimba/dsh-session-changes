@@ -2,6 +2,16 @@
 
 写给下一位接手的人（或新 Session 的 AI）。读完这一页你应该能：知道它是什么、现在到哪一步、怎么验证、还剩什么。
 
+> **2026-10-27 v0.14.0「逐块接受 / 还原」**：diff 视图里每个红/绿改动块在鼠标悬停时出现
+> `Accept` / `Revert` 两个按钮（Split 为右栏，Inline 为改动行；移开即消失）。
+> **Accept** 把该块的「新行」写回 **首次改前快照**（`<workspace>/.dsh/session-changes/<sid>/<rel>`），
+> 该块随即不再算作改动；**Revert** 把该块的「旧行」写回**磁盘上的当前文件**。
+> 新建文件的所有行被整体 Revert 时删除该文件（恢复到「会话前不存在」）。
+> 两条新路由 `POST api/session-changes.accept` / `.revert` 都带 `expect`（浏览器读到的被替换侧
+> 文本的 SHA-256）；Host 在写前重算，不匹配返回 `409 changed`，**绝不覆盖** diff 打开之后 Agent
+> 又改过的内容。写 Host 路由后必须重启 DSH 或关开 bundle 才生效；客户端改完 `pnpm run build` 后强刷。
+> 详见 §3.1 与 §4 的新文件。
+
 > **2026-10-27 发布准备**：0.13.1 整理为可发布包（移除 `private`，补 `engines.dsh`、MIT LICENSE、icon、
 > `locale/*.json` 的 meta 与 npm 元数据）；安装文档改为 npm / Git / 本地目录三种入口。
 
@@ -50,7 +60,7 @@
 - 代码：`C:\Users\kingsimba\Documents\deepseek-harness\default-workspace\plugins\dsh-session-changes`
 - 安装方式：Plugins → Add plugin → npm 包名 `dsh-session-changes` / Git URL / 本地绝对路径；开发时
   `~/.dsh/profiles/desktop/node_modules/dsh-session-changes` 是指向这里的 junction，所以**改代码立即生效**（刷新方式见 §5）
-- 版本：`0.13.1`，git 仓库就在插件目录里，tag 从 `v0.3.0` 到 `v0.12.1`（`v0.13.x` 待打）
+- 版本：`0.14.0`，git 仓库就在插件目录里，tag 从 `v0.3.0` 到 `v0.12.1`（`v0.13.x`、`v0.14.x` 待打）
 
 ## 2. 现在能做什么
 
@@ -84,10 +94,32 @@
 
 | 路由 | 用途 |
 |---|---|
-| `GET /api/session-changes.list?sessionId` | 该 Session 所有 `workspace/changes` 汇总（前端列表） |
-| `GET /api/session-changes.file?sessionId&seq&path` | 文件**当前**内容（`node:fs`，上限 4MB） |
-| `GET /api/session-changes.base?sessionId&seq&path` | 文件的**首次改前原文**；新建返回 `{absent:true}`；未捕获 404 |
-| `GET /api/session-changes.exists?sessionId` | 列表里每个 path 现在还在不在盘上：`{paths:{path:"file"\|"other"\|"missing"\|"unknown"}}`（只 `stat`，最多 2000 条） |
+| `GET /api/session-changes.list?sessionId` | 前像存储的索引：该 Session 文件工具碰过的文件（前端列表） |
+| `GET /api/session-changes.file?sessionId&path` | 文件**当前**内容（`node:fs`，上限 4MB；binary/too-large 归一成错误码） |
+| `GET /api/session-changes.base?sessionId&path` | 文件的**首次改前原文**；新建返回 `{absent:true}`；未捕获 404 |
+| `GET /api/session-changes.watch?sessionId` | ndjson 失效流：`ready` / `file` / `added` / `ping`；`fs.watch` 观察列表里的文件 |
+| `POST /api/session-changes.open?sessionId&path` | 用桌面默认应用打开一个**已捕获**的文件 |
+| `POST /api/session-changes.accept` | body `{sessionId,path,text,expect}`；把 `text` 写回**前像**，删掉 `.absent`（如存在） |
+| `POST /api/session-changes.revert` | body 同上；把 `text` 写回**磁盘文件**；`text===""` 且前像为 absent 时删除该文件 |
+
+### 3.1 逐块接受 / 还原（v0.14.0）
+
+- 客户端 `diff/blocks.js` 把每个 hunk 的连续 `-`/`+` 行切成一个 **change block**：带 `oldStart/oldLines`
+  与 `newStart/newLines`（纯插入 `oldLines=0`，纯删除 `newLines=0`）以及 `deleted[]`/`added[]` 文本。
+  `diff/model.js` 把 block 挂到对应行（`splitRows` 把 `row.block` 带到配对行上），`ROW_CAP` 截断的
+  hunk 标 `editable:false`，不出按钮。
+- `components/block-actions.js` 渲染一对按钮；它们就在改动行里，靠 CSS `:hover`/`:focus-within`
+  显隐（`styles.css` 里 `.dsc-actions` 用 `position: sticky; right`，长行横向滚动时也停在右缘）。
+  Split 只在**右栏**放按钮（纯删除块的右栏是 pad 行，仍然带 `row.block`）；Inline 每个改动行各一份。
+- 点击后 `changes-tab.js` 用 `text-patch.js` 的 `spliceLines` 在本地拼出该侧的完整新文本：
+  - accept：`base.split("\n")` 的 `[oldStart-1, oldStart-1+oldLines)` 换成 `added`；
+  - revert：当前文本的 `[newStart-1, newStart-1+newLines)` 换成 `deleted`。
+  然后 `hashText(被替换侧原文)`（WebCrypto SHA-256）作为 `expect` POST 给 Host。
+- Host 在写前重新读取被替换侧并算同一个 SHA-256：不一致 → `409 {error:"changed"}`，不写。
+  成功后 `notify(sessionId,{t:"file"})`；客户端立即 `refreshAll()`，accept 还 bump `baseVersion`
+  让 `useFileCounts` 丢掉前像缓存。冲突时显示 `applyConflict` 提示并刷新，绝不静默覆盖。
+- 新建文件整体 revert（`text===""` 且 `.absent` 存在）→ `rm` 该文件，返回 `{ok:true,deleted:true}`。
+- 注意：**accept 会覆盖前像里的旧行**，没有第二份备份；误接受只能靠文件自身 VCS 找回。
 
 **客户端**（`lib/client.js`）：
 
@@ -106,7 +138,7 @@
 
 ```
 plugins/dsh-session-changes/
-├─ package.json          # dsh.bundle.patch + dsh.client + pnpm scripts（version 0.12.0）
+├─ package.json          # dsh.bundle.patch + dsh.client + pnpm scripts（version 0.14.0）
 ├─ cordis.patch.yml      # insert: session-changes 行
 ├─ README.md             # 面向用户的功能说明（含 Development 一节）
 ├─ HANDOVER.md           # 本文件
@@ -114,7 +146,7 @@ plugins/dsh-session-changes/
 ├─ .prettierignore       # 跳过生成物 lib/client.js 与 *.md
 ├─ scripts/build.mjs     # rollup：src/client → lib/client.js，带 --check
 ├─ src/client/           # 浏览器端源码（拆分后的真身，见下）
-├─ lib/index.js          # Host：五条路由（list/file/base/watch/open）+ 前像存储（无 recorder 依赖，无构建步骤）
+├─ lib/index.js          # Host：七条路由（list/file/base/watch/open/accept/revert）+ 前像存储（无 recorder 依赖，无构建步骤）
 ├─ lib/client.js         # 【生成物】rollup 打包结果，别手改
 ├─ test/                 # harness + diff/bundle 测试（node --test）
 └─ profile/              # 快照：~/.dsh/profiles/desktop 的 cordis.patch.yml 与 package.json
@@ -122,7 +154,7 @@ plugins/dsh-session-changes/
 
 ```
 src/client/
-├─ index.js               # apply / inject：注册 tab 类型、guide、字典、pane body
+├─ index.js               # apply / inject：注册 tab 类型、guide、字典、pane body、快捷键命令（session.changes.open）
 ├─ changes-tab.js         # 状态与编排（唯一持有页面级 useState 的组件）
 ├─ hooks/
 │   ├─ use-file-list.js     # list（前像存储的索引）+ 刷新计数
@@ -144,17 +176,20 @@ src/client/
 │   ├─ split-diff.js        # Split 布局（两条同步滚动的 lane / 换行网格）
 │   ├─ inline-diff.js       # Inline 布局（单栏）
 │   ├─ diff-text.js         # 高亮文本单元格 + 网格双栏
+│   ├─ block-actions.js     # 每个改动行的 Accept / Revert 悬停按钮
 │   ├─ pane-note.js         # loading/error/binary/oversized 与顶部提示（两布局共用）
 │   ├─ error-boundary.js    # TabBoundary
 │   └─ tab-body.js          # 注册给 slot 的 body
 ├─ diff/
 │   ├─ lines.js             # diffLines（LCS，超预算降级 coarse）
 │   ├─ hunks.js             # sliceHunk / toHunks
-│   ├─ rows.js              # hunkRows / splitRows / hunkLabel
+│   ├─ blocks.js            # hunkBlocks：每个改动块的两侧精确行范围
+│   ├─ rows.js              # hunkRows / splitRows / hunkLabel（block 随行传递）
 │   ├─ highlight.js         # highlightedSide
-│   └─ model.js             # 按 ROW_CAP 截断 + 编号 + 成对 + 高亮的统一模型
+│   └─ model.js             # 按 ROW_CAP 截断 + 编号 + 成对 + 高亮 + block 的统一模型
 ├─ locale/{en,zh,fallback}.js
-├─ api.js                 # 所有 fetch（list/file/base + watch）
+├─ api.js                 # 所有 fetch（list/file/base + watch + accept/revert）
+├─ text-patch.js          # spliceLines（按块拼完整文本）+ hashText（SHA-256 expect）
 ├─ comparison.js          # 对比构建：pre-image → 当前文件
 ├─ grouping.js            # groupFiles（按目录分组）
 ├─ view.js                # buildView（turns → 单列表 + 汇总）

@@ -70,6 +70,25 @@ async function call(routes, path, query) {
   return route.fetch(new Request(`http://host${path}?${query}`));
 }
 
+/** SHA-256 of a text, as the browser sends it for a review write. */
+function sha(text) {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+/** POST one accept/revert write. */
+async function applyWrite(routes, action, payload) {
+  const route = routes.get(`/api/session-changes.${action}`);
+  assert.ok(route !== undefined, `the ${action} route was not registered`);
+  assert.deepEqual(route.methods, ["POST"]);
+  return route.fetch(
+    new Request(`http://host/api/session-changes.${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
 /**
  * Simulate one file-tool write: map the tool execution to its Session, run the
  * write-intent waterfall (which captures the pre-image), then write the file.
@@ -93,6 +112,9 @@ test("apply injects the services the Host half needs", async () => {
       "/api/session-changes.file",
       "/api/session-changes.base",
       "/api/session-changes.watch",
+      "/api/session-changes.open",
+      "/api/session-changes.accept",
+      "/api/session-changes.revert",
     ])
       assert.ok(routes.has(path), `${path} was not registered`);
   } finally {
@@ -229,6 +251,187 @@ test("the file route refuses a binary file and reports a vanished one", async ()
     );
     assert.equal(gone.status, 404);
     assert.equal((await gone.json()).error, "read-ENOENT");
+  } finally {
+    await dispose();
+  }
+});
+
+test("accept writes the block's new text into the stored pre-image", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const target = join(cwd, "src", "app.js");
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, "before\n", "utf8");
+    await toolWrite({ handlers, session, target, content: "after\n" });
+
+    const accepted = await applyWrite(routes, "accept", {
+      sessionId,
+      path: "src/app.js",
+      text: "after\n",
+      expect: sha("before\n"),
+    });
+    assert.equal(accepted.status, 200);
+    assert.deepEqual(await accepted.json(), { ok: true });
+
+    // The store now holds the accepted text; the live file is untouched.
+    const stored = join(cwd, ".dsh/session-changes", sessionId, "src", "app.js");
+    assert.equal(await readFile(stored, "utf8"), "after\n");
+    assert.equal(await readFile(target, "utf8"), "after\n");
+    const base = await call(
+      routes,
+      "/api/session-changes.base",
+      `sessionId=${sessionId}&path=src/app.js`,
+    );
+    assert.deepEqual(await base.json(), { text: "after\n" });
+  } finally {
+    await dispose();
+  }
+});
+
+test("accept refuses when the pre-image no longer matches the browser's digest", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const target = join(cwd, "src", "app.js");
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, "before\n", "utf8");
+    await toolWrite({ handlers, session, target, content: "after\n" });
+
+    const refused = await applyWrite(routes, "accept", {
+      sessionId,
+      path: "src/app.js",
+      text: "stale\n",
+      expect: sha("something else"),
+    });
+    assert.equal(refused.status, 409);
+    assert.deepEqual(await refused.json(), { error: "changed" });
+    // Nothing was overwritten.
+    const stored = join(cwd, ".dsh/session-changes", sessionId, "src", "app.js");
+    assert.equal(await readFile(stored, "utf8"), "before\n");
+  } finally {
+    await dispose();
+  }
+});
+
+test("revert writes the pre-image's lines back into the live file", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const target = join(cwd, "src", "app.js");
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, "before\n", "utf8");
+    await toolWrite({ handlers, session, target, content: "after\n" });
+
+    const reverted = await applyWrite(routes, "revert", {
+      sessionId,
+      path: "src/app.js",
+      text: "before\n",
+      expect: sha("after\n"),
+    });
+    assert.equal(reverted.status, 200);
+    assert.deepEqual(await reverted.json(), { ok: true });
+    assert.equal(await readFile(target, "utf8"), "before\n");
+    // The pre-image store is the baseline; reverting does not touch it.
+    const stored = join(cwd, ".dsh/session-changes", sessionId, "src", "app.js");
+    assert.equal(await readFile(stored, "utf8"), "before\n");
+  } finally {
+    await dispose();
+  }
+});
+
+test("revert refuses to clobber a file the agent changed after the diff was drawn", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const target = join(cwd, "src", "app.js");
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, "before\n", "utf8");
+    await toolWrite({ handlers, session, target, content: "after\n" });
+    // A second write lands while the browser still shows "after".
+    await toolWrite({ handlers, session, target, content: "newer\n" });
+
+    const refused = await applyWrite(routes, "revert", {
+      sessionId,
+      path: "src/app.js",
+      text: "before\n",
+      expect: sha("after\n"),
+    });
+    assert.equal(refused.status, 409);
+    assert.deepEqual(await refused.json(), { error: "changed" });
+    assert.equal(await readFile(target, "utf8"), "newer\n");
+  } finally {
+    await dispose();
+  }
+});
+
+test("a created file gains a real pre-image on accept and is deleted on full revert", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { routes, handlers } = createContext({ cwd });
+    const created = join(cwd, "notes.md");
+    await toolWrite({ handlers, session, target: created, content: "hello\n" });
+
+    // Accepting the whole block of a new file turns the absent marker into text.
+    const accepted = await applyWrite(routes, "accept", {
+      sessionId,
+      path: "notes.md",
+      text: "hello\n",
+      expect: sha(""),
+    });
+    assert.equal(accepted.status, 200);
+    const store = join(cwd, ".dsh/session-changes", sessionId);
+    assert.equal(await readFile(join(store, "notes.md"), "utf8"), "hello\n");
+    let marker = true;
+    try {
+      await readFile(join(store, "notes.md.absent"));
+    } catch {
+      marker = false;
+    }
+    assert.equal(marker, false);
+
+    // A second new file, reverted in full, goes away instead of staying empty.
+    const other = join(cwd, "other.md");
+    await toolWrite({ handlers, session, target: other, content: "gone\n" });
+    const reverted = await applyWrite(routes, "revert", {
+      sessionId,
+      path: "other.md",
+      text: "",
+      expect: sha("gone\n"),
+    });
+    assert.equal(reverted.status, 200);
+    assert.deepEqual(await reverted.json(), { ok: true, deleted: true });
+    await assert.rejects(readFile(other, "utf8"));
+  } finally {
+    await dispose();
+  }
+});
+
+test("accept and revert refuse a path this Session never captured", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const { routes } = createContext({ cwd });
+    for (const action of ["accept", "revert"]) {
+      const refused = await applyWrite(routes, action, {
+        sessionId,
+        path: "nope.js",
+        text: "text\n",
+        expect: "",
+      });
+      assert.equal(refused.status, 404);
+      assert.deepEqual(await refused.json(), { error: "not-captured" });
+    }
   } finally {
     await dispose();
   }

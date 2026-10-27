@@ -6,10 +6,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildComparison } from "../src/client/comparison.js";
+import { hunkBlocks } from "../src/client/diff/blocks.js";
 import { countChangedLines } from "../src/client/diff/counts.js";
 import { sliceHunk, toHunks } from "../src/client/diff/hunks.js";
 import { diffLines } from "../src/client/diff/lines.js";
+import { buildDiffModel } from "../src/client/diff/model.js";
 import { hunkRows, splitRows } from "../src/client/diff/rows.js";
+import { spliceLines } from "../src/client/text-patch.js";
 
 /** Only the lines that changed, as `op:text` strings. */
 function changes(ops) {
@@ -103,6 +106,117 @@ test("splitRows pairs a deletion run with the additions that follow", () => {
   assert.equal(rows[2].right, undefined);
   assert.equal(rows[3].left.text, "keep 2");
   assert.equal(rows[3].right.text, "keep 2");
+});
+
+test("hunkBlocks cuts a hunk into runs and keeps exact ranges on both sides", () => {
+  const blocks = hunkBlocks({
+    oldStart: 1,
+    newStart: 1,
+    lines: [" keep", "-old 1", "-old 2", "+new 1", " keep 2", "-old 3", "+new 3"],
+  });
+  assert.equal(blocks.length, 2);
+  assert.deepEqual(blocks[0], {
+    from: 1,
+    to: 3,
+    oldStart: 2,
+    oldLines: 2,
+    newStart: 2,
+    newLines: 1,
+    deleted: ["old 1", "old 2"],
+    added: ["new 1"],
+  });
+  assert.deepEqual(blocks[1], {
+    from: 5,
+    to: 6,
+    oldStart: 5,
+    oldLines: 1,
+    newStart: 4,
+    newLines: 1,
+    deleted: ["old 3"],
+    added: ["new 3"],
+  });
+});
+
+test("hunkBlocks anchors a pure insertion and a pure deletion at the right line", () => {
+  const inserted = hunkBlocks({
+    oldStart: 1,
+    newStart: 1,
+    lines: [" keep", "+added", " keep 2"],
+  });
+  assert.deepEqual(inserted, [
+    {
+      from: 1,
+      to: 1,
+      oldStart: 2,
+      oldLines: 0,
+      newStart: 2,
+      newLines: 1,
+      deleted: [],
+      added: ["added"],
+    },
+  ]);
+  const deleted = hunkBlocks({
+    oldStart: 1,
+    newStart: 1,
+    lines: [" keep", "-gone", " keep 2"],
+  });
+  assert.deepEqual(deleted, [
+    {
+      from: 1,
+      to: 1,
+      oldStart: 2,
+      oldLines: 1,
+      newStart: 2,
+      newLines: 0,
+      deleted: ["gone"],
+      added: [],
+    },
+  ]);
+});
+
+test("accepting a block writes its added lines over the pre-image's range", () => {
+  const base = "keep\nold 1\nold 2\nkeep 2";
+  // oldStart 2, oldLines 2, additions ["new 1"]
+  assert.equal(spliceLines(base, 1, 2, ["new 1"]), "keep\nnew 1\nkeep 2");
+});
+
+test("reverting a block writes its deleted lines back over the current range", () => {
+  const current = "keep\nnew 1\nkeep 2";
+  // newStart 2, newLines 1, deletions ["old 1", "old 2"]
+  assert.equal(spliceLines(current, 1, 1, ["old 1", "old 2"]), "keep\nold 1\nold 2\nkeep 2");
+});
+
+test("reverting a pure insertion removes the added lines and keeps the newline", () => {
+  assert.equal(spliceLines("a\nadded\nb\n", 1, 1, []), "a\nb\n");
+  // A pure deletion re-inserts at its new-side anchor.
+  assert.equal(spliceLines("a\nb\n", 1, 0, ["gone"]), "a\ngone\nb\n");
+  assert.equal(spliceLines("", 0, 0, ["first"]), "first");
+});
+
+test("buildDiffModel hands every changed row its block, and split rows share it", () => {
+  const hunks = [
+    {
+      oldStart: 1,
+      oldLines: 2,
+      newStart: 1,
+      newLines: 2,
+      lines: [" keep", "-old", "+new", " keep 2"],
+    },
+  ];
+  const inline = buildDiffModel({ hunks }, undefined, "inline");
+  assert.equal(inline.blocks[0].changes.length, 1);
+  assert.equal(inline.blocks[0].changes[0].key, "0:0");
+  assert.equal(inline.blocks[0].changes[0].editable, true);
+  assert.equal(inline.blocks[0].rows[0].block, undefined);
+  assert.equal(inline.blocks[0].rows[1].block, inline.blocks[0].changes[0]);
+  assert.equal(inline.blocks[0].rows[2].block, inline.blocks[0].changes[0]);
+
+  const split = buildDiffModel({ hunks }, undefined, "split");
+  const changed = split.blocks[0].rows.filter((row) => row.block !== undefined);
+  assert.equal(changed.length, 1);
+  assert.equal(changed[0].left.kind, "del");
+  assert.equal(changed[0].right.kind, "add");
+  assert.equal(changed[0].block, split.blocks[0].changes[0]);
 });
 
 test("buildComparison waits for the current file to be read", () => {

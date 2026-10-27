@@ -3,17 +3,19 @@ import { buildDiffModel } from "../diff/model.js";
 import { hunkLabel } from "../diff/rows.js";
 import { languageForPath, useCodeHighlighter } from "../primitives.js";
 import { h, react } from "../react.js";
+import { BlockActions } from "./block-actions.js";
 import { DiffText } from "./diff-text.js";
 import { comparisonNotes, notesBlock, paneNote } from "./pane-note.js";
 
 /**
  * One comparison drawn as a single column: old line number, new line number, a
  * sign, and the line. This is the inline layout; it takes the same payload as the
- * split layout, so either scope can use either one.
+ * split layout, so either scope can use either one. A changed row carries its
+ * block's accept/revert buttons, shown only while that row is hovered.
  *
- * @param props - `{ state, wrap, t, onRetry }`.
+ * @param props - `{ state, wrap, t, onRetry, busy, actionError, onAction }`.
  */
-export function InlineDiff({ state, wrap, t, onRetry }) {
+export function InlineDiff({ state, wrap, t, onRetry, busy, actionError, onAction }) {
   const data = state !== undefined && state.phase === "ready" ? state.data : undefined;
   const text = data !== undefined && data.kind === "text" ? data : undefined;
   const language =
@@ -67,13 +69,20 @@ export function InlineDiff({ state, wrap, t, onRetry }) {
                 row.kind === "add" ? "+" : row.kind === "del" ? "−" : "",
               ),
               h(DiffText, { key: "c", text: row.text, spans }),
+              h(BlockActions, { key: "a", t, block: row.block, busy, onAction }),
             ],
           ),
         );
       }
     }
 
+  const actionNote =
+    actionError === undefined || actionError === null
+      ? null
+      : h("div", { className: "dsc-dnote dsc-actionnote", key: "act" }, actionError);
+
   return h("div", { className: "dsc-dbody" }, [
+    actionNote,
     notesBlock(comparisonNotes(data, model, t)),
     h(
       "div",

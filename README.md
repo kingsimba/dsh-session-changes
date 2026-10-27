@@ -13,7 +13,20 @@ Session against the file as it stands now. There is no per-turn mode.
 
 The built-in changed-files card lives in the transcript and scrolls away, and the Review tab it opens
 is a right-sidebar tab. Closing that tab used to leave no way back except scrolling to the turn. This
-page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**, any time.
+page is a docked tab type, so it stays reachable: `+` (add tab) → **Changes**, or the keyboard shortcut
+below, any time.
+
+## Keyboard shortcut
+
+The browser half registers **Open Session changes** with DSH's shortcut service, so the binding is
+editable in **Settings → General → Keyboard shortcuts** (also `Mod+/`): click the row to record a new
+combination, clear it, or restore the default. The default is `Mod+Alt+D` — `Ctrl+Alt+D` on Windows and
+Linux, `⌘⌥D` on macOS. The command is searchable there as *Open Session changes*, *session changes*,
+*changes*, or *diff*.
+
+The action opens the Changes tab in the pane that has focus (or the active docked pane when focus is
+elsewhere) and expands the right sidebar. With no Session on screen it reports *Select a session first*
+instead of opening nothing.
 
 ## Layout
 
@@ -78,6 +91,26 @@ Every row answers *"what changed since this task started"*: selecting a file dif
 * a file with no recorded pre-image (it was changed before this Host build started capturing them) has no
   baseline at all, so the pane says exactly that and shows no diff — it never rebuilds one from the turns.
 
+## Accept or revert a change
+
+Hover a changed block in the comparison — the new half of the side-by-side view (the red
+half for a deletion, which has no new side), or a changed row in the inline view — and two
+buttons appear at its right edge. They disappear as soon as the pointer leaves the block.
+
+* **Accept** folds that block into the comparison's baseline: the stored pre-image is
+  rewritten so the block no longer reads as a change. The next refresh drops its `+N −M`
+  from the row and from the comparison. The file on disk keeps the Agent's change.
+* **Revert** writes the block's original lines back to the file on disk, undoing just that
+  block. Reverting every line of a file this Session created deletes the file, returning
+  the path to the state it had before the Session. The baseline is not touched.
+
+One action at a time; both buttons are disabled while it runs. Each write is guarded by a
+SHA-256 digest of the side the browser last read. If the Agent (or an editor) changed that
+side after the diff was drawn, the Host refuses with `409 changed`, the pane re-reads, and
+the action is not applied — an edit is never silently overwritten. Accepting overwrites the
+old lines in the stored pre-image, so a mistaken accept can only be undone from the
+compared file's own version control.
+
 ## Editing
 
 DSH's file surfaces are previews: the sidebar document viewer is documented as *preview, not editing*,
@@ -101,7 +134,7 @@ The Desktop profile is managed by the Electron app, so install it through **Plug
    directory of a local checkout.
 3. Confirm **Install** and let it compose.
 4. Refresh the app window (Ctrl+R) so the browser loads the new client bundle.
-5. In the right sidebar, click **+** (add tab) → **Changes**.
+5. In the right sidebar, click **+** (add tab) → **Changes**, or press `Mod+Alt+D`.
 
 To remove it: **Plugins** → the bundle's page → remove. Nothing else in the profile is touched.
 
@@ -109,24 +142,33 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
 
 * Host half (`lib/index.js`): the plugin's **own store** under `<workspace>/.dsh/session-changes/` is the
   only source. It copies a file's whole text just before the first `fs/write-intent` / `fs/edit-intent`
-  that touches it (or writes an `.absent` marker for a path that did not exist yet), and serves five
+  that touches it (or writes an `.absent` marker for a path that did not exist yet), and serves seven
   authenticated routes: `api/session-changes.list` (the store's index — which files this Session's
   file tools touched), `api/session-changes.file` (a file's current text, refusing binary and oversized
   ones), `api/session-changes.base` (its stored pre-image, or `{ absent: true }`),
   `api/session-changes.watch` (a newline-delimited stream of `ready` / `file` / `added` / `ping` frames;
-  it observes the listed files through `fs.watch`) and `api/session-changes.open` (a POST that hands one
-  captured file to the desktop's default application). No per-turn summary is involved.
-* Browser half (`src/client/`): a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body.
+  it observes the listed files through `fs.watch`), `api/session-changes.open` (a POST that hands one
+  captured file to the desktop's default application), and the POSTs `api/session-changes.accept` /
+  `api/session-changes.revert` (one change block's new text written into the pre-image, or its old
+  lines written back to the file; each refuses a stale `expect` digest with `409`). No per-turn
+  summary is involved.
+* Browser half (`src/client/`): a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body,
+  and one editable `shortcuts` command (`session.changes.open`).
   It fetches the list, reads one pre-image and one current text per row to number it, and diffs the
-  selected file with its own diff engine; it never calls `api/changes.diff`.
+  selected file with its own diff engine; it never calls `api/changes.diff`. Each hunk's change blocks
+  carry both line ranges, so an action can patch one side's text without re-diffing on the Host.
 
 ## Permissions and data
 
 * **File access** — the Host reads the Session workspace and writes the pre-image store under
   `<workspace>/.dsh/session-changes/`; a path outside the workspace is kept under the sibling
-  `_external` store. Nothing is uploaded.
-* **HTTP routes** — five authenticated routes under `api/session-changes.*` (list, file, base,
-  watch, open) are served through the DSH connection and require the signed-in user.
+  `_external` store. Accept rewrites one captured pre-image; revert writes one captured file on disk
+  (and can remove a file this Session created, when every added line is reverted). Nothing is
+  uploaded.
+* **HTTP routes** — seven authenticated routes under `api/session-changes.*` (list, file, base,
+  watch, open, accept, revert) are served through the DSH connection and require the signed-in user.
+  The two write routes only accept a path this Session already captured, and only the pre-image or
+  that file is written.
 * **Open in application** — `api/session-changes.open` spawns the OS opener
   (`cmd.exe /c start` on Windows, `open` on macOS, `xdg-open` elsewhere) for a path the Session
   captured and that is still a regular file. It does not accept arbitrary paths.
