@@ -7,8 +7,11 @@ import { FileRow } from "./file-row.js";
  * Turn the Host's file list plus the live counts into the rows the list shows.
  *
  * A file that was edited back to its pre-image nets zero, so it is not "changed
- * since this task started" and drops out instead of reading `+0 −0`. A row whose
- * counts are still being read stays visible without numbers.
+ * since this task started" and drops out instead of reading `+0 −0`. That includes
+ * a path that is gone now: a file the Session created and then removed (or one
+ * whose deletion was accepted) has no lines left to review either. Only rows whose
+ * counts could not be read at all (a missing pre-image, a binary, an oversized one)
+ * stay visible without numbers. A row still being read stays visible too.
  *
  * @param files - `{ path, display }[]` from the Host.
  * @param counts - `{ [path]: { added, deleted, missing, binary, oversized } }`.
@@ -18,15 +21,9 @@ export function buildRows(files, counts) {
   const shown = [];
   for (const file of files) {
     const live = counts[file.path];
-    if (
-      live !== undefined &&
-      live.missing !== true &&
-      live.binary !== true &&
-      live.oversized !== true &&
-      (live.added ?? 0) === 0 &&
-      (live.deleted ?? 0) === 0
-    )
-      continue;
+    const counted =
+      live !== undefined && Number.isFinite(live.added) && Number.isFinite(live.deleted);
+    if (counted && live.added === 0 && live.deleted === 0) continue;
     const segments = String(file.display).split(/[\\/]/);
     const name = segments.pop() ?? String(file.display);
     shown.push({

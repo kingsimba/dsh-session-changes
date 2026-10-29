@@ -672,3 +672,54 @@ test("a multi-line selection or a click outside the pane does not highlight", as
   tree = await harness.settle(props);
   assert.equal(withClass(tree, "dsc-tok").length, 0);
 });
+
+test("a file created and deleted again leaves no row, even after Accept All", async () => {
+  // The Session captured `ghost.js` as absent, then the file was removed; the base
+  // came back empty and the current read is missing, so the row nets zero. Accepting
+  // the list folds every pre-image into the current side and must not resurrect it.
+  let accepted = false;
+  const writes = [];
+  const fetch = async (url, init) => {
+    const text = String(url);
+    if (text.includes("session-changes.list"))
+      return respond({
+        files: [
+          { path: "src/ghost.js", display: "src/ghost.js" },
+          { path: "src/keep.js", display: "src/keep.js" },
+        ],
+      });
+    if (text.includes("session-changes.base")) {
+      if (text.includes("ghost.js"))
+        return accepted ? respond({ text: "" }) : respond({ absent: true });
+      return respond({ text: accepted ? "new" : "old" });
+    }
+    if (text.includes("session-changes.file")) {
+      if (text.includes("ghost.js"))
+        return { ok: false, status: 404, json: async () => ({ error: "read-ENOENT" }) };
+      return respond({ text: "new" });
+    }
+    if (text.includes("session-changes.apply-all")) {
+      writes.push(JSON.parse(init.body));
+      accepted = true;
+      return respond({ ok: true, files: 2, failed: 0 });
+    }
+    return refuse();
+  };
+  const harness = createHarness({ fetch });
+  const props = { sessionId: "session-1", tab: { visible: true } };
+  let tree = await harness.settle(props);
+
+  assert.equal(withClass(tree, "dsc-row").length, 1);
+  assert.doesNotMatch(textOf(tree), /ghost\.js/);
+
+  const acceptAll = withClass(tree, "dsc-act").find(
+    (button) => button.props["data-action"] === "accept-all",
+  );
+  assert.ok(acceptAll !== undefined);
+  acceptAll.props.onClick();
+  tree = await harness.settle(props);
+
+  assert.equal(writes.length, 1);
+  assert.equal(withClass(tree, "dsc-row").length, 0);
+  assert.doesNotMatch(textOf(tree), /ghost\.js/);
+});

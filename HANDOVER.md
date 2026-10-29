@@ -6,6 +6,8 @@
 > 整词匹配（`motorState` 不命中 `motorStateCache`），支持 `sensor::LidarData` 这类限定名。高亮用
 > CSS Custom Highlight API，不碰 DOM 文本，所以 **Ctrl+C 仍可用**；没有该 API 时回退到 `<mark>`。
 > 选中状态在 `DetailBody`（带 viewKey），换文件/范围、Esc 或单击即清。详见 §3.6。
+> 同日修复：文件已删除且前像也为空（新建后又删掉，或 Accept 掉了删除）时，列表不再残留
+> `+0 −0` 的幽灵行——`buildRows` 现在只在**计数读不到**时才保留 missing 行。
 
 > **2026-10-28「侧栏收起/展开不再卡长 diff」**：
 > ① 现象：diff 很长（尤其 **Full** 作用域）时，点右侧栏的收起/展开，动画会明显卡顿。
