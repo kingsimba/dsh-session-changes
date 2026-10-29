@@ -1,9 +1,11 @@
 import { ROW_CAP } from "../constants.js";
 import { buildDiffModel } from "../diff/model.js";
 import { hunkLabel } from "../diff/rows.js";
+import { useTokenHighlight } from "../hooks/use-token-highlight.js";
 import { languageForPath, useCodeHighlighter } from "../primitives.js";
 import { h, react } from "../react.js";
 import { readScroll, writeScroll } from "../session-memory.js";
+import { selectedToken, supportsTokenHighlight } from "../token-highlight.js";
 import { BlockActions } from "./block-actions.js";
 import { DiffCells, DiffText } from "./diff-text.js";
 import { comparisonNotes, notesBlock, paneNote } from "./pane-note.js";
@@ -37,9 +39,25 @@ function syncLanes(source, target, guard) {
  * The pane remembers its scroll offsets per Session, file, scope and mode, and
  * restores them when the tab is mounted again after a Session switch.
  *
- * @param props - `{ state, wrap, t, onRetry, busy, actionError, onAction, viewKey }`.
+ * Selecting one token lights up every occurrence in the view: the browser paints the
+ * matches through the CSS Custom Highlight API, or they are wrapped in `<mark>` when
+ * that API is missing.
+ *
+ * @param props - `{ state, wrap, t, onRetry, busy, actionError, onAction, viewKey,
+ *   token, onToken }`.
  */
-export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction, viewKey }) {
+export function SplitDiff({
+  state,
+  wrap,
+  t,
+  onRetry,
+  busy,
+  actionError,
+  onAction,
+  viewKey,
+  token,
+  onToken,
+}) {
   const data = state !== undefined && state.phase === "ready" ? state.data : undefined;
   const text = data !== undefined && data.kind === "text" ? data : undefined;
   const language =
@@ -55,6 +73,18 @@ export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction
     if (text === undefined) return null;
     return buildDiffModel(text, highlighter, "split");
   }, [text, highlighter]);
+
+  const selected = token === null || token === undefined ? null : token;
+  useTokenHighlight(bodyRef, selected, model, wrap);
+  // The CSS API paints the matches itself; only a browser without it needs marks,
+  // which would re-create the text nodes and drop the user's selection.
+  const markToken = supportsTokenHighlight() === true ? null : selected;
+
+  /** Take the token a finished selection names, or clear the highlight. */
+  const pickToken = (event) => {
+    if (typeof onToken !== "function") return;
+    onToken(selectedToken(event.currentTarget));
+  };
 
   /** Keep the current scroll offsets under this view's key. */
   const remember = () => {
@@ -142,25 +172,30 @@ export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction
             t,
             busy,
             onAction,
+            token: markToken,
           }))
             cells.push(cell);
         }
       }
-    return h("div", { className: "dsc-dbody", ref: bodyRef, onScroll: remember }, [
-      actionNote,
-      head,
-      h(
-        "div",
-        {
-          className: "dsc-dgrid",
-          "data-wrap": "true",
-          "data-spans": highlighter === undefined ? "false" : "true",
-          key: "g",
-        },
-        cells,
-      ),
-      truncation,
-    ]);
+    return h(
+      "div",
+      { className: "dsc-dbody", ref: bodyRef, onScroll: remember, onMouseUp: pickToken },
+      [
+        actionNote,
+        head,
+        h(
+          "div",
+          {
+            className: "dsc-dgrid",
+            "data-wrap": "true",
+            "data-spans": highlighter === undefined ? "false" : "true",
+            key: "g",
+          },
+          cells,
+        ),
+        truncation,
+      ],
+    );
   }
 
   /**
@@ -215,7 +250,7 @@ export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction
               ),
               cell === undefined
                 ? h("span", { className: "dsc-code", key: "c" })
-                : h(DiffText, { key: "c", text: cell.text, spans }),
+                : h(DiffText, { key: "c", text: cell.text, spans, token: markToken }),
               // The buttons live on the right half, as the review surface; a deleted
               // block has a pad cell there, which still carries the row's block.
               actionable
@@ -229,37 +264,41 @@ export function SplitDiff({ state, wrap, t, onRetry, busy, actionError, onAction
     return out;
   };
 
-  return h("div", { className: "dsc-dbody", ref: bodyRef, onScroll: remember }, [
-    actionNote,
-    head,
-    h("div", { className: "dsc-lanes", key: "l" }, [
-      h(
-        "div",
-        {
-          className: "dsc-lane dsc-lane-left",
-          key: "left",
-          ref: leftRef,
-          onScroll: (event) => {
-            syncLanes(event.currentTarget, rightRef.current, guard);
-            remember();
+  return h(
+    "div",
+    { className: "dsc-dbody", ref: bodyRef, onScroll: remember, onMouseUp: pickToken },
+    [
+      actionNote,
+      head,
+      h("div", { className: "dsc-lanes", key: "l" }, [
+        h(
+          "div",
+          {
+            className: "dsc-lane dsc-lane-left",
+            key: "left",
+            ref: leftRef,
+            onScroll: (event) => {
+              syncLanes(event.currentTarget, rightRef.current, guard);
+              remember();
+            },
           },
-        },
-        lane("left"),
-      ),
-      h(
-        "div",
-        {
-          className: "dsc-lane dsc-lane-right",
-          key: "right",
-          ref: rightRef,
-          onScroll: (event) => {
-            syncLanes(event.currentTarget, leftRef.current, guard);
-            remember();
+          lane("left"),
+        ),
+        h(
+          "div",
+          {
+            className: "dsc-lane dsc-lane-right",
+            key: "right",
+            ref: rightRef,
+            onScroll: (event) => {
+              syncLanes(event.currentTarget, leftRef.current, guard);
+              remember();
+            },
           },
-        },
-        lane("right"),
-      ),
-    ]),
-    truncation,
-  ]);
+          lane("right"),
+        ),
+      ]),
+      truncation,
+    ],
+  );
 }

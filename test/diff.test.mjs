@@ -12,6 +12,8 @@ import { sliceHunk, toHunks } from "../src/client/diff/hunks.js";
 import { diffLines } from "../src/client/diff/lines.js";
 import { buildDiffModel } from "../src/client/diff/model.js";
 import { hunkRows, splitRows } from "../src/client/diff/rows.js";
+import { linePieces, matchRanges, sliceSpans, tokenOf } from "../src/client/diff/tokens.js";
+import { collectRanges, supportsTokenHighlight } from "../src/client/token-highlight.js";
 import { spliceLines } from "../src/client/text-patch.js";
 
 /** Only the lines that changed, as `op:text` strings. */
@@ -304,4 +306,109 @@ test("buildComparison passes a binary or oversized file to the pane", () => {
     }),
     { status: "oversized" },
   );
+});
+
+/** The texts a match list covers, for readable assertions. */
+function hitTexts(text, token) {
+  return matchRanges(text, token).map(({ start, end }) => text.slice(start, end));
+}
+
+test("tokenOf accepts identifiers and qualified names, and refuses prose", () => {
+  assert.equal(tokenOf("  motorState  "), "motorState");
+  assert.equal(tokenOf("motor_state"), "motor_state");
+  assert.equal(tokenOf("sensor::LidarData"), "sensor::LidarData");
+  assert.equal(tokenOf("config.motorState"), "config.motorState");
+  assert.equal(tokenOf("ptr->value"), "ptr->value");
+  assert.equal(tokenOf("::globalName"), "::globalName");
+
+  // A double-click that drags across a line break, or plain prose, names no token.
+  assert.equal(tokenOf("two words"), null);
+  assert.equal(tokenOf("line\nnext"), null);
+  assert.equal(tokenOf(""), null);
+  assert.equal(tokenOf("   "), null);
+  assert.equal(tokenOf("0.2"), null);
+  assert.equal(tokenOf(null), null);
+  assert.equal(tokenOf("x".repeat(201)), null);
+});
+
+test("token matches are whole identifiers, never a prefix of a longer one", () => {
+  assert.deepEqual(hitTexts("motorState + motorStateCache + motorState", "motorState"), [
+    "motorState",
+    "motorState",
+  ]);
+  assert.deepEqual(matchRanges("motorStateCache", "motorState"), []);
+  // A selection inside a qualified name still finds the qualified occurrences.
+  assert.deepEqual(hitTexts("sensor::LidarData lidar", "LidarData"), ["LidarData"]);
+  assert.deepEqual(hitTexts("auto l = sensor::LidarData{};", "sensor::LidarData"), [
+    "sensor::LidarData",
+  ]);
+});
+
+test("linePieces cuts a plain line at the matches", () => {
+  const pieces = linePieces("motorState = motorState;", "motorState");
+  assert.deepEqual(
+    pieces.map((piece) => (piece.hit ? "[" + piece.text + "]" : piece.text)),
+    ["[motorState]", " = ", "[motorState]", ";"],
+  );
+  assert.equal(linePieces("nothing here", "motorState"), null);
+});
+
+test("sliceSpans keeps syntax styles and finds a token split across spans", () => {
+  const colours = [{ color: "a" }, { color: "b" }, { color: "c" }];
+  const spans = [
+    { text: "sensor", style: colours[0] },
+    { text: "::", style: colours[1] },
+    { text: "LidarData", style: colours[2] },
+  ];
+  const line = "sensor::LidarData";
+  const pieces = sliceSpans(spans, matchRanges(line, line));
+  assert.deepEqual(pieces, [
+    { text: "sensor", style: colours[0], hit: true },
+    { text: "::", style: colours[1], hit: true },
+    { text: "LidarData", style: colours[2], hit: true },
+  ]);
+});
+
+test("collectRanges builds one range across a token split into spans", () => {
+  const at = (value) => ({ nodeValue: value });
+  const parts = [at("sensor"), at("::"), at("LidarData")];
+  const line = { children: parts };
+  const doc = {
+    createTreeWalker(root) {
+      const nodes = [];
+      const gather = (node) => {
+        if (typeof node.nodeValue === "string") {
+          nodes.push(node);
+          return;
+        }
+        for (const child of node.children ?? []) gather(child);
+      };
+      gather(root);
+      let next = 0;
+      return {
+        nextNode: () => (next < nodes.length ? nodes[next++] : null),
+      };
+    },
+    createRange() {
+      return {
+        setStart(node, offset) {
+          this.startNode = node;
+          this.startOffset = offset;
+        },
+        setEnd(node, offset) {
+          this.endNode = node;
+          this.endOffset = offset;
+        },
+      };
+    },
+  };
+  const container = { querySelectorAll: () => [line] };
+  const ranges = collectRanges(container, "sensor::LidarData", doc);
+  assert.equal(ranges.length, 1);
+  assert.equal(ranges[0].startNode, parts[0]);
+  assert.equal(ranges[0].startOffset, 0);
+  assert.equal(ranges[0].endNode, parts[2]);
+  assert.equal(ranges[0].endOffset, 9);
+  // The Node test runner has no CSS Custom Highlight API, so the mark fallback runs.
+  assert.equal(supportsTokenHighlight(), false);
 });

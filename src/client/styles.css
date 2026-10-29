@@ -331,6 +331,18 @@ body[data-ds-dark-theme] .dsc-turn {
   padding-right: 12px;
   min-width: 0;
 }
+/* A selected token's other occurrences: bright yellow, painted by the Custom
+   Highlight API; the mark rule is the fallback for browsers without it. Dark text
+   keeps the token readable on the yellow in either theme. */
+.dsc-code mark.dsc-tok {
+  background-color: #fde047;
+  color: #1f1f1f;
+  border-radius: 2px;
+}
+::highlight(dsc-token-hit) {
+  background-color: #fde047;
+  color: #1f1f1f;
+}
 .dsc-dgrid[data-wrap="true"] .dsc-code {
   white-space: pre-wrap;
   word-break: break-word;

@@ -562,3 +562,113 @@ test("a row whose counts are still loading shows an ellipsis, never undefined", 
   assert.ok(rowCounts !== undefined);
   assert.equal(textOf(rowCounts), "…");
 });
+
+/** A Host whose file repeats one identifier on a context line and a changed line. */
+function tokenHost() {
+  const before = "const motorState = 0;\nconst other = 1;\nmotorState += 2;";
+  const after = "const motorState = 0;\nconst other = 1;\nmotorState += 3;";
+  return async (url) => {
+    const text = String(url);
+    if (text.includes("session-changes.list"))
+      return respond({ files: [{ path: "motor.js", display: "motor.js" }] });
+    if (text.includes("session-changes.base")) return respond({ text: before });
+    if (text.includes("session-changes.file")) return respond({ text: after });
+    return refuse();
+  };
+}
+
+/**
+ * Hand the fake window a finished selection, the way the browser reports one.
+ * @param text - the selected text.
+ * @param options - `{ collapsed, node }`.
+ */
+function select(text, { collapsed = false, node = {} } = {}) {
+  globalThis.window.getSelection = () => ({
+    isCollapsed: collapsed,
+    anchorNode: node,
+    focusNode: node,
+    toString: () => text,
+  });
+}
+
+/**
+ * A selection end inside a diff line: a text node whose parent is a `.dsc-code` run.
+ * @returns the fake node.
+ */
+function codeSelectionNode() {
+  return {
+    nodeType: 3,
+    parentElement: { closest: (selector) => (selector === ".dsc-code" ? {} : null) },
+  };
+}
+
+test("selecting one token highlights every occurrence in the comparison", async () => {
+  const harness = createHarness({ fetch: tokenHost() });
+  const props = { sessionId: "session-1", tab: { visible: true } };
+  let tree = await harness.settle(props);
+  const pane = { contains: () => true };
+  const body = withClass(tree, "dsc-dbody")[0];
+  assert.ok(body !== undefined);
+  assert.equal(withClass(tree, "dsc-tok").length, 0);
+
+  select("motorState", { node: codeSelectionNode() });
+  body.props.onMouseUp({ currentTarget: pane });
+  tree = await harness.settle(props);
+
+  // Side by side draws the context line in both lanes and the changed line on each
+  // side, so all four drawn occurrences light up. Nothing else is added above the
+  // diff: a bar appearing and disappearing would make the view jump.
+  assert.equal(withClass(tree, "dsc-tok").length, 4);
+  assert.match(textOf(tree), /motorState \+= 3;/);
+  assert.equal(withClass(tree, "dsc-tokenbar").length, 0);
+
+  // A plain click clears the highlight again.
+  select("", { collapsed: true, node: codeSelectionNode() });
+  body.props.onMouseUp({ currentTarget: pane });
+  tree = await harness.settle(props);
+  assert.equal(withClass(tree, "dsc-tok").length, 0);
+});
+
+test("the inline layout highlights each drawn occurrence once", async () => {
+  const harness = createHarness({
+    fetch: tokenHost(),
+    storage: new Map([["dsh-session-changes.layout", "inline"]]),
+  });
+  const props = { sessionId: "session-1", tab: { visible: true } };
+  let tree = await harness.settle(props);
+  const pane = { contains: () => true };
+  const body = withClass(tree, "dsc-dbody")[0];
+
+  select("motorState", { node: codeSelectionNode() });
+  body.props.onMouseUp({ currentTarget: pane });
+  tree = await harness.settle(props);
+
+  // One context line, then the deletion and the addition: three rows.
+  assert.equal(withClass(tree, "dsc-tok").length, 3);
+});
+
+test("a multi-line selection or a click outside the pane does not highlight", async () => {
+  const harness = createHarness({ fetch: tokenHost() });
+  const props = { sessionId: "session-1", tab: { visible: true } };
+  let tree = await harness.settle(props);
+  const pane = { contains: () => true };
+  const body = withClass(tree, "dsc-dbody")[0];
+
+  // Prose, not one token.
+  select("const motorState\nconst other", { node: codeSelectionNode() });
+  body.props.onMouseUp({ currentTarget: pane });
+  tree = await harness.settle(props);
+  assert.equal(withClass(tree, "dsc-tok").length, 0);
+
+  // The selection is somewhere else on the page.
+  select("motorState", { node: {} });
+  body.props.onMouseUp({ currentTarget: { contains: () => false } });
+  tree = await harness.settle(props);
+  assert.equal(withClass(tree, "dsc-tok").length, 0);
+
+  // The same word picked out of a note (not a diff line) is not a token either.
+  select("motorState", { node: { nodeType: 3, parentElement: { closest: () => null } } });
+  body.props.onMouseUp({ currentTarget: pane });
+  tree = await harness.settle(props);
+  assert.equal(withClass(tree, "dsc-tok").length, 0);
+});

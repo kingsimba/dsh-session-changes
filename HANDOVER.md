@@ -2,6 +2,11 @@
 
 写给下一位接手的人（或新 Session 的 AI）。读完这一页你应该能：知道它是什么、现在到哪一步、怎么验证、还剩什么。
 
+> **2026-10-29「选中 token 高亮」**：diff 里双击（或拖选）一个标识符，视图内所有同名 token 标黄；
+> 整词匹配（`motorState` 不命中 `motorStateCache`），支持 `sensor::LidarData` 这类限定名。高亮用
+> CSS Custom Highlight API，不碰 DOM 文本，所以 **Ctrl+C 仍可用**；没有该 API 时回退到 `<mark>`。
+> 选中状态在 `DetailBody`（带 viewKey），换文件/范围、Esc 或单击即清。详见 §3.6。
+
 > **2026-10-28「侧栏收起/展开不再卡长 diff」**：
 > ① 现象：diff 很长（尤其 **Full** 作用域）时，点右侧栏的收起/展开，动画会明显卡顿。
 > ② 根因：侧栏每次展开/收起都会让 `sidebar.right.pane.tab` 的 body 重渲染一次；`buildRows` 每次
@@ -269,6 +274,18 @@
 - 不要把 `busy` / `actionError` 放进 `DetailBody` 的 payload memo：payload 只描述内容；按钮状态变化
   时重渲染外壳即可，模型和行不需要重算。
 
+### 3.6 选中 token 高亮（2026-10-29）
+
+- 选区：`.dsc-dbody` 的 `onMouseUp` → `token-highlight.js` 的 `selectedToken()`：非折叠、至少一端在
+  `.dsc-code` 内、且 `tokenOf()` 认作一个标识符（`a`、`a::b`、`a.b`、`a->b`；空白/超 200 字符/数字不算）。
+- 匹配：`diff/tokens.js` 用 `(?<![\p{ID_Continue}$])…(?!…)` 做整词命中；每行先拼整行再切 syntax
+  span，所以被 tokenizer 拆开的 `sensor` / `::` / `LidarData` 仍算一个。`patternFor` 缓存 32 条。
+- 渲染：`hooks/use-token-highlight.js` 把 `collectRanges()` 的 Range 注册到
+  `CSS.highlights.set("dsc-token-hit", …)`，**DOM 文本不变**，选区与 Ctrl+C 保留；没有该 API 时
+  `DiffText` 用 `sliceSpans` 包 `<mark class="dsc-tok">`。样式是亮黄 + 深色字，见 `styles.css`。
+- 清除：选中状态存在 `DetailBody`（按 viewKey），换文件/范围自然失效；折叠选区、非 token 选区或
+  Esc（token 非空时才挂 keydown）都会清。**不渲染计数条**：顶部出现/消失会让视图跳动。
+
 ## 4. 目录与文件
 
 ```
@@ -299,6 +316,7 @@ src/client/
 │   ├─ use-whole-file.js    # .file，missing/binary/oversized 归一成 phase；重读保留 ready；apply 本地写入
 │   ├─ use-base.js          # .base；重读保留 ready；apply 本地写入
 │   ├─ use-comparison.js    # buildComparison 的 memo
+│   ├─ use-token-highlight.js # 把选中 token 的 Range 注册到 CSS.highlights（不碰 DOM 文本）
 │   └─ use-resizable.js     # 宽度、拖拽、键盘微调（宽度上限交给左栏 CSS max-width）
 ├─ components/
 │   ├─ list-pane.js         # 左栏：标题/统计/状态 + 顶部 Accept All / Revert All
@@ -322,10 +340,12 @@ src/client/
 │   ├─ blocks.js            # hunkBlocks：每个改动块的两侧精确行范围
 │   ├─ rows.js              # hunkRows / splitRows / hunkLabel（block 随行传递）
 │   ├─ highlight.js         # highlightedSide
+│   ├─ tokens.js            # tokenOf / matchRanges / sliceSpans（纯函数）
 │   └─ model.js             # 按 ROW_CAP 截断 + 编号 + 成对 + 高亮 + block 的统一模型
 ├─ locale/{en,zh,fallback}.js
 ├─ api.js                 # 所有 fetch（list/file/base + watch + accept/revert + apply-file/all）
 ├─ session-memory.js      # 页面级按 Session 记住选中/计数/滚动（切换 Session 恢复现场）
+├─ token-highlight.js     # 选区→token、token→CSS Highlight Range 的 DOM 侧工具
 ├─ client-id.js           # 每个 Tab 的 clientId：watch 与写请求都带它，Host 据此跳过自己的回显
 ├─ text-patch.js          # spliceLines（按块拼完整文本）+ hashText（SHA-256 expect）
 ├─ comparison.js          # 对比构建：pre-image → 当前文件
@@ -400,9 +420,11 @@ src/client/
 5. 新建一个文件 → 应有 `<name>.absent`（0 B）
 6. Changes → `Overall` → `Full`：应显示「会话开始 → 现在」的整文件对比，**行号连续**，且**不出现**「无法还原该对比的起点」
 7. 切 `Inline` / `Split` 各看一遍；点不同 turn chip，左侧列表应随之变化
-8. 静态检查与单测：`pnpm run verify`（= prettier --check + `build.mjs --check` + `node --test test/`）。
+8. 在对比区双击一个变量名：同名 token 应标黄且 Ctrl+C 仍能复制（CSS Highlight 不碰选区）；
+   Esc / 单击 / 换文件或范围后清除
+9. 静态检查与单测：`pnpm run verify`（= prettier --check + `build.mjs --check` + `node --test test/`）。
    没有 node_modules 时至少跑 `node --check lib/index.js`、`node --check lib/client.js`。
-9. Host 逻辑脱机自测（不需要跑 App，也不用登录）：
+10. Host 逻辑脱机自测（不需要跑 App，也不用登录）：
    - 用桩 `ctx` 加载 `lib/index.js`、调用 `mod.apply(ctx)`，桩要提供
      `connection.fetch.register` / `sessionQuery.listEvents` / `workspaceChanges.summary`
      （返回 `{ cwd: <workspace> }`）/ `fs.processPath` / `effect` / `on`
@@ -465,14 +487,16 @@ window.__ModuleLoader__.load({ id, factory: (require) => { ... } })
 - `test/support/harness.mjs`：在 Node 里装 `window`/`document`/`fetch` 和一个带依赖比较的 react 替代，加载
   打包后的 `lib/client.js`，可 `render` / `settle`（按 deps 跑 effect，跟 React 一样）。
 - `test/bundle.test.mjs`：注册、列表与对比渲染、已删除/二进制/空会话/列表失败，以及块 / 文件行 /
-  整列表的 Accept-Revert 标记与点击后发出的请求体（含 `source`）。
-- `test/diff.test.mjs`：diff 引擎、hunk 与 change block 范围、`spliceLines`、`buildComparison` 的七种状态。
+  整列表的 Accept-Revert 标记与点击后发出的请求体（含 `source`）、选中 token 后的 split/inline
+  高亮与清除。
+- `test/diff.test.mjs`：diff 引擎、hunk 与 change block 范围、`spliceLines`、`buildComparison` 的七种状态、
+  token 识别 / 整词匹配 / 跨 syntax span 的切分与 Range。
 - `test/host.test.mjs`：桩 `ctx` + 临时工作区，验九条路由（含 409 冲突、二进制按字节复制、整批 `{files,failed}`、
   watch 对自身写入回显的过滤）。
 - `test/watch.test.mjs`：1 s debounce、ndjson 解析、watch 的 `client` 参数。
 - `test/memory.test.mjs`：Session 级选中、计数、滚动缓存的读写与清除。
 
-六个测试文件共 72 条断言，`pnpm test` 单进程约 8 s（大头是渲染 harness 每次 settle 的 200 ms 级等待）。
+六个测试文件共 80 条断言，`pnpm test` 单进程约 8 s（大头是渲染 harness 每次 settle 的 200 ms 级等待）。
 
 **等价性证据**：`scripts/compare-bundles.mjs <旧 bundle>` 用同一套 stub 渲染 11 个场景（By turn / Overall ×
 Split / Inline × Full、已删除、二进制、drift、空会话、列表失败），元素树（tag + 可序列化 props + 文本）

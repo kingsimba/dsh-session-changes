@@ -11,6 +11,10 @@ import { SplitDiff } from "./split-diff.js";
  * re-render caused by something else (a click in flight, a sidebar geometry change)
  * reuses the numbered and highlighted rows instead of rebuilding them.
  *
+ * This is also where the selected token lives. It is stored with the view key it was
+ * picked under, so changing the file or the scope drops it without an extra render
+ * that would flash the old highlight over a new file.
+ *
  * @param props - the current selection, the computed comparison and its sources,
  *   plus the review action state (`busy`, `actionError`, `onAction`).
  */
@@ -62,6 +66,26 @@ export function DetailBody({
     return { note: null, state: payloadState, viewKey };
   }, [t, sessionId, selected, whole, comparison, baseState]);
 
+  const [picked, setPicked] = react.useState(null);
+  const token = picked !== null && picked.key === view.viewKey ? picked.token : null;
+
+  /** Remember a token against the view it was picked in, or drop the highlight. */
+  const chooseToken = (next) => {
+    setPicked(next === null ? null : { key: view.viewKey, token: next });
+  };
+
+  // Escape dismisses the highlight; the list and toolbar stay as they are.
+  react.useEffect(() => {
+    if (token === null) return undefined;
+    if (typeof document === "undefined" || typeof document.addEventListener !== "function")
+      return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") setPicked(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [token]);
+
   if (view.note !== null) return h("div", { className: "dsc-note" }, view.note);
 
   const shared = {
@@ -72,6 +96,8 @@ export function DetailBody({
     actionError,
     onAction,
     viewKey: view.viewKey,
+    token,
+    onToken: chooseToken,
   };
   return layout === "inline" ? h(InlineDiff, shared) : h(SplitDiff, shared);
 }

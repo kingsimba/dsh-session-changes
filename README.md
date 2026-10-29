@@ -50,6 +50,7 @@ instead of opening nothing.
   independently, because the omitted source lines make whole-file tokenization impossible. If the
   primitives module is not exposed to this plugin, the pane degrades to plain text; the grid carries
   `data-spans="false"` when that happens.
+* **Select a token to highlight every occurrence in the view** — double-click a variable or class name (or drag over one); Escape or a click clears it.
 * **Drag the divider** (or focus it and press ←/→, Shift for a bigger step) to resize the list. The
   width is remembered per browser.
 * **↵** toggles line wrapping. Unwrapped keeps a **fixed 50/50 split**: each lane is its own scroll
