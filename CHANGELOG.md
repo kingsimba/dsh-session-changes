@@ -1,7 +1,6 @@
 # Changelog
 
 - 2026-10-29 review: highlight every occurrence of a token selected in the diff view
-
 - 2026-10-28 perf: keep the comparison's payload, its diff model, and the rendered pane stable while the
   sidebar expands, collapses, or resizes. Those gestures used to re-render the tab body with a fresh row
   object, which defeated the comparison memo: a long diff in **Full** scope was re-diffed, re-highlighted,
