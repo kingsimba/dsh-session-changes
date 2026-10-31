@@ -75,9 +75,9 @@ test("apply registers an editable shortcut that opens the Changes tab", () => {
   assert.equal(command.id, "session.changes.open");
   assert.equal(command.label(), "Open Session changes");
   assert.deepEqual(command.defaults, {
-    "desktop:macos": { code: "KeyD", modifiers: ["primary", "alt"] },
-    "desktop:windows": { code: "KeyD", modifiers: ["primary", "alt"] },
-    "desktop:linux": { code: "KeyD", modifiers: ["primary", "alt"] },
+    "desktop:macos": { code: "KeyD", modifiers: ["alt", "shift"] },
+    "desktop:windows": { code: "KeyD", modifiers: ["alt", "shift"] },
+    "desktop:linux": { code: "KeyD", modifiers: ["alt", "shift"] },
     "web:macos": { code: "KeyD", modifiers: ["primary", "alt"] },
     "web:windows": { code: "KeyD", modifiers: ["primary", "alt"] },
   });

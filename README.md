@@ -20,9 +20,10 @@ below, any time.
 
 The browser half registers **Open Session changes** with DSH's shortcut service, so the binding is
 editable in **Settings → General → Keyboard shortcuts** (also `Mod+/`): click the row to record a new
-combination, clear it, or restore the default. The default is `Mod+Alt+D` — `Ctrl+Alt+D` on Windows and
-Linux, `⌘⌥D` on macOS. The command is searchable there as *Open Session changes*, *session changes*,
-*changes*, or *diff*.
+combination, clear it, or restore the default. The default is `Alt+Shift+D` in the Desktop app
+(`⌥⇧D` on macOS). The browser build keeps `Mod+Alt+D` (`Ctrl+Alt+D` / `⌘⌥D`) because DSH's Web
+shortcut service does not admit Alt+Shift combinations. Either can be rebound per device. The command
+is searchable there as *Open Session changes*, *session changes*, *changes*, or *diff*.
 
 The action opens the Changes tab in the pane that has focus (or the active docked pane when focus is
 elsewhere) and expands the right sidebar. With no Session on screen it reports *Select a session first*
@@ -155,25 +156,29 @@ The Desktop profile is managed by the Electron app, so install it through **Plug
    directory of a local checkout.
 3. Confirm **Install** and let it compose.
 4. Refresh the app window (Ctrl+R) so the browser loads the new client bundle.
-5. In the right sidebar, click **+** (add tab) → **Changes**, or press `Mod+Alt+D`.
+5. In the right sidebar, click **+** (add tab) → **Changes**, or press `Alt+Shift+D`.
 
 To remove it: **Plugins** → the bundle's page → remove. Nothing else in the profile is touched.
 
 ## What it reads
 
-* Host half (`lib/index.js`): the plugin's **own store** under `<workspace>/.dsh/session-changes/` is the
-  only source. It copies a file's whole text just before the first `fs/write-intent` / `fs/edit-intent`
-  that touches it (or writes an `.absent` marker for a path that did not exist yet), and serves nine
-  authenticated routes: `api/session-changes.list` (the store's index — which files this Session's
-  file tools touched), `api/session-changes.file` (a file's current text, refusing binary and oversized
-  ones), `api/session-changes.base` (its stored pre-image, or `{ absent: true }`),
-  `api/session-changes.watch` (a newline-delimited stream of `ready` / `file` / `added` / `ping` frames;
-  it observes the listed files through `fs.watch`), `api/session-changes.open` (a POST that hands one
-  captured file to the desktop's default application), the POSTs `api/session-changes.accept` /
-  `api/session-changes.revert` (one change block's new text written into the pre-image, or its old
-  lines written back to the file; each refuses a stale `expect` digest with `409`), and
-  `api/session-changes.apply-file` / `api/session-changes.apply-all` (the same choice for a whole file
-  or the whole list, copying bytes so binaries survive). No per-turn summary is involved.
+* Host half (`lib/index.js`): the plugin's **own store** under
+  `$DSH_HOME/session-changes/<workspace digest>/` is the only source — outside the work tree, so a
+  repository's `git status` stays clean. `$DSH_HOME` is DSH's data root; the Desktop sets it, and it
+  defaults to `~/.dsh` when a headless Host does not. Each workspace's directory carries a
+  `workspace.json` naming the directory it belongs to. The store copies a file's whole text just before
+  the first `fs/write-intent` / `fs/edit-intent` that touches it (or writes an `.absent` marker for a
+  path that did not exist yet), and serves nine authenticated routes: `api/session-changes.list` (the
+  store's index — which files this Session's file tools touched), `api/session-changes.file` (a file's
+  current text, refusing binary and oversized ones), `api/session-changes.base` (its stored pre-image,
+  or `{ absent: true }`), `api/session-changes.watch` (a newline-delimited stream of `ready` / `file` /
+  `added` / `ping` frames; it observes the listed files through `fs.watch`),
+  `api/session-changes.open` (a POST that hands one captured file to the desktop's default application),
+  the POSTs `api/session-changes.accept` / `api/session-changes.revert` (one change block's new text
+  written into the pre-image, or its old lines written back to the file; each refuses a stale `expect`
+  digest with `409`), and `api/session-changes.apply-file` / `api/session-changes.apply-all` (the same
+  choice for a whole file or the whole list, copying bytes so binaries survive). No per-turn summary is
+  involved.
 * Browser half (`src/client/`): a `builtin`-band page tab type plus one `sidebar.right.pane.tab` body,
   and one editable `shortcuts` command (`session.changes.open`).
   It fetches the list, reads one pre-image and one current text per row to number it, and diffs the
@@ -185,9 +190,9 @@ To remove it: **Plugins** → the bundle's page → remove. Nothing else in the 
 ## Permissions and data
 
 * **File access** — the Host reads the Session workspace and writes the pre-image store under
-  `<workspace>/.dsh/session-changes/`; a path outside the workspace is kept under the sibling
-  `_external` store. Accept rewrites captured pre-images; revert writes captured files on disk (and can
-  remove files this Session created). Nothing is uploaded.
+  `$DSH_HOME/session-changes/<workspace digest>/`; a path outside the workspace is kept under the
+  sibling `_external` store. Accept rewrites captured pre-images; revert writes captured files on disk
+  (and can remove files this Session created). Nothing is uploaded.
 * **HTTP routes** — nine authenticated routes under `api/session-changes.*` (list, file, base,
   watch, open, accept, revert, apply-file, apply-all) are served through the DSH connection and require
   the signed-in user. Every write route only accepts a path this Session already captured, and only the
@@ -243,7 +248,11 @@ re-enable it on its Plugins page.
 * Outside a git work tree the recorder used to list file-tool edits only; this page no longer reads the
   recorder at all, so the rule is the same everywhere: the file tools' pre-images are the list.
 * The list is not a git working-tree view and does not show uncommitted changes made outside the agent.
-* Stores are kept when a Session is disposed, so a reopened Session still lists its files; nothing prunes
-  old stores automatically (they live under `.dsh/`, which `git` ignores).
+* Stores are kept when a Session is disposed, so a reopened Session still lists its files; nothing
+  prunes old stores automatically. A store an earlier version kept inside the workspace
+  (`<workspace>/.dsh/session-changes/`) is copied into `$DSH_HOME` on the first read, and the
+  in-workspace directory is removed.
+* The store follows `$DSH_HOME`, not the repository, so another machine or container starts with no
+  pre-images for a Session — the same trade-off as any other DSH data.
 * The watch follows the files the list already shows, so a brand-new file appears as soon as its
   pre-image is captured — before its turn closes — not the instant it is created on disk.

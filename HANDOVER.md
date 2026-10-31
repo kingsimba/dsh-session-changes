@@ -2,6 +2,16 @@
 
 写给下一位接手的人（或新 Session 的 AI）。读完这一页你应该能：知道它是什么、现在到哪一步、怎么验证、还剩什么。
 
+> **2026-10-31「存储移出仓库」**：前像 store 从 `<workspace>/.dsh/session-changes/` 改到
+> `$DSH_HOME/session-changes/<sha1(规范化 cwd)>/`，跟 DSH 自己的 `sessions/--<转义 cwd>--/` 同一个思路。
+> 每个工作区目录里带 `workspace.json` 记录原始 cwd；`preImagePath` 仍按相对路径镜像，`_external`
+> 仍按 sha1 存放工作区外路径。`DSH_HOME` 缺失时兜底 `~/.dsh`，headless Host 不会再因为把
+> `undefined` 传给 `join` 而崩。旧 store 在首次读取时整目录复制过去，随后删掉仓库内的旧目录；
+> 实现见 `storeDirectory` / `prepareStore` / `adoptLegacyStore`，回归测试见
+> `test/host.test.mjs` 的 "the pre-image store stays outside the workspace" 与
+> "a store an earlier version kept in the workspace is adopted and removed"。
+> 下文凡写 `.dsh/session-changes` 的都是历史记录，不再代表当前布局。
+
 > **2026-10-29「选中 token 高亮」**：diff 里双击（或拖选）一个标识符，视图内所有同名 token 标黄；
 > 整词匹配（`motorState` 不命中 `motorStateCache`），支持 `sensor::LidarData` 这类限定名。高亮用
 > CSS Custom Highlight API，不碰 DOM 文本，所以 **Ctrl+C 仍可用**；没有该 API 时回退到 `<mark>`。

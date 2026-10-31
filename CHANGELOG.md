@@ -1,5 +1,14 @@
 # Changelog
 
+- 2026-10-31 shortcuts: make `Alt+Shift+D` the Desktop default binding for Open Session changes (was
+  `Mod+Alt+D`). The browser build keeps `Mod+Alt+D` because DSH's Web shortcut service only admits
+  Mod+Shift / Mod+Alt chords.
+- 2026-10-31 store: keep the pre-image store outside the work tree, at
+  `$DSH_HOME/session-changes/<workspace digest>/`, instead of `<workspace>/.dsh/session-changes/`, so a
+  repository's `git status` stays clean. `DSH_HOME` falls back to `~/.dsh` when a headless Host does not
+  set it, and `workspace.json` in each store directory records which workspace it belongs to. A store an
+  earlier version left inside a workspace is copied into `$DSH_HOME` on the first read, then the
+  in-workspace directory is removed.
 - 2026-10-29 review: drop a deleted file from the list once no lines remain to review
 - 2026-10-29 review: highlight every occurrence of a token selected in the diff view
 - 2026-10-28 perf: keep the comparison's payload, its diff model, and the rendered pane stable while the

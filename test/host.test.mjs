@@ -5,11 +5,11 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
-import { apply, inject } from "../lib/index.js";
+import { apply, inject, storeDirectory } from "../lib/index.js";
 
 let sessions = 0;
 /** A unique Session id per test: the Host caches each Session's workspace root. */
@@ -56,10 +56,19 @@ function createContext({ cwd }) {
   return { routes, handlers, watchers, ctx };
 }
 
-/** A throwaway workspace. */
+/** A throwaway workspace, with its own DSH data root so no real store is touched. */
 async function workspace() {
   const cwd = await mkdtemp(join(tmpdir(), "dsh-session-changes-"));
-  return { cwd, dispose: () => rm(cwd, { recursive: true, force: true }) };
+  const home = await mkdtemp(join(tmpdir(), "dsh-session-changes-home-"));
+  process.env.DSH_HOME = home;
+  return {
+    cwd,
+    home,
+    dispose: async () => {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    },
+  };
 }
 
 /** Call one registered route. */
@@ -151,7 +160,7 @@ test("a write captures the pre-image, then the list and both reads see the file"
     await toolWrite({ handlers, session, target, content: "after\n" });
 
     // The pre-image is the text as it stood before the write.
-    const stored = join(cwd, ".dsh/session-changes", sessionId, "src", "app.js");
+    const stored = join(storeDirectory(cwd), sessionId, "src", "app.js");
     assert.equal(await readFile(stored, "utf8"), "before\n");
 
     const list = await (
@@ -175,6 +184,61 @@ test("a write captures the pre-image, then the list and both reads see the file"
       `sessionId=${sessionId}&path=src/app.js`,
     );
     assert.deepEqual(await current.json(), { text: "after\n" });
+  } finally {
+    await dispose();
+  }
+});
+
+test("the pre-image store stays outside the workspace, under DSH_HOME", async () => {
+  const { cwd, home, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const session = { id: sessionId, header: { cwd } };
+    const { handlers } = createContext({ cwd });
+    const target = join(cwd, "src", "app.js");
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, "before\n", "utf8");
+
+    await toolWrite({ handlers, session, target, content: "after\n" });
+
+    const stored = join(storeDirectory(cwd), sessionId, "src", "app.js");
+    assert.equal(await readFile(stored, "utf8"), "before\n");
+    assert.equal(stored.startsWith(home), true);
+    // Nothing was written into the work tree, not even an empty `.dsh`.
+    await assert.rejects(stat(join(cwd, ".dsh")));
+    // The store names the workspace it belongs to, so a digest is debuggable.
+    const descriptor = JSON.parse(
+      await readFile(join(storeDirectory(cwd), "workspace.json"), "utf8"),
+    );
+    assert.equal(descriptor.path, cwd);
+  } finally {
+    await dispose();
+  }
+});
+
+test("a store an earlier version kept in the workspace is adopted and removed", async () => {
+  const { cwd, dispose } = await workspace();
+  try {
+    const sessionId = nextSession();
+    const legacy = join(cwd, ".dsh/session-changes");
+    await mkdir(join(legacy, sessionId, "src"), { recursive: true });
+    await writeFile(join(legacy, sessionId, "src", "app.js"), "before\n", "utf8");
+    const { routes } = createContext({ cwd });
+
+    const list = await (
+      await call(routes, "/api/session-changes.list", `sessionId=${sessionId}`)
+    ).json();
+    assert.deepEqual(
+      list.files.map((file) => file.path),
+      ["src/app.js"],
+    );
+    assert.equal(
+      await readFile(join(storeDirectory(cwd), sessionId, "src", "app.js"), "utf8"),
+      "before\n",
+    );
+    await assert.rejects(stat(legacy));
+    // The now-empty `.dsh` wrapper goes too, leaving the work tree untouched.
+    await assert.rejects(stat(join(cwd, ".dsh")));
   } finally {
     await dispose();
   }
@@ -222,7 +286,7 @@ test("a path outside the workspace is captured by digest and listed by its absol
     const digest = createHash("sha1")
       .update(process.platform === "win32" ? target.toLowerCase() : target, "utf8")
       .digest("hex");
-    const external = join(cwd, ".dsh/session-changes", "_external", sessionId);
+    const external = join(storeDirectory(cwd), "_external", sessionId);
     assert.equal(await readFile(join(external, digest), "utf8"), "outside before\n");
     assert.equal((await readFile(join(external, digest + ".path"), "utf8")).trim(), target);
 
@@ -293,7 +357,7 @@ test("accept writes the block's new text into the stored pre-image", async () =>
     assert.deepEqual(await accepted.json(), { ok: true });
 
     // The store now holds the accepted text; the live file is untouched.
-    const stored = join(cwd, ".dsh/session-changes", sessionId, "src", "app.js");
+    const stored = join(storeDirectory(cwd), sessionId, "src", "app.js");
     assert.equal(await readFile(stored, "utf8"), "after\n");
     assert.equal(await readFile(target, "utf8"), "after\n");
     const base = await call(
@@ -327,7 +391,7 @@ test("accept refuses when the pre-image no longer matches the browser's digest",
     assert.equal(refused.status, 409);
     assert.deepEqual(await refused.json(), { error: "changed" });
     // Nothing was overwritten.
-    const stored = join(cwd, ".dsh/session-changes", sessionId, "src", "app.js");
+    const stored = join(storeDirectory(cwd), sessionId, "src", "app.js");
     assert.equal(await readFile(stored, "utf8"), "before\n");
   } finally {
     await dispose();
@@ -355,7 +419,7 @@ test("revert writes the pre-image's lines back into the live file", async () => 
     assert.deepEqual(await reverted.json(), { ok: true });
     assert.equal(await readFile(target, "utf8"), "before\n");
     // The pre-image store is the baseline; reverting does not touch it.
-    const stored = join(cwd, ".dsh/session-changes", sessionId, "src", "app.js");
+    const stored = join(storeDirectory(cwd), sessionId, "src", "app.js");
     assert.equal(await readFile(stored, "utf8"), "before\n");
   } finally {
     await dispose();
@@ -406,7 +470,7 @@ test("a created file gains a real pre-image on accept and is deleted on full rev
       expect: sha(""),
     });
     assert.equal(accepted.status, 200);
-    const store = join(cwd, ".dsh/session-changes", sessionId);
+    const store = join(storeDirectory(cwd), sessionId);
     assert.equal(await readFile(join(store, "notes.md"), "utf8"), "hello\n");
     let marker = true;
     try {
@@ -475,7 +539,7 @@ test("a whole-file accept and revert copy both sides byte for byte", async () =>
     });
     assert.equal(accepted.status, 200);
     assert.deepEqual(await accepted.json(), { ok: true });
-    const stored = join(cwd, ".dsh/session-changes", sessionId, "src", "app.js");
+    const stored = join(storeDirectory(cwd), sessionId, "src", "app.js");
     assert.equal(await readFile(stored, "utf8"), "after\n");
     assert.equal(await readFile(textFile, "utf8"), "after\n");
 
@@ -524,7 +588,7 @@ test("apply-all accepts every listed file into its pre-image", async () => {
     assert.equal(accepted.status, 200);
     assert.deepEqual(await accepted.json(), { ok: true, files: 3, failed: 0 });
 
-    const store = join(cwd, ".dsh/session-changes", sessionId);
+    const store = join(storeDirectory(cwd), sessionId);
     assert.equal(await readFile(join(store, "src", "app.js"), "utf8"), "after\n");
     assert.equal(await readFile(join(store, "b.js"), "utf8"), "after2\n");
     assert.equal(await readFile(join(store, "c.md"), "utf8"), "new\n");

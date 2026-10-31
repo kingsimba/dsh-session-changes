@@ -72,7 +72,7 @@ export function apply(ctx) {
   );
   // Optional: the tab type and its body keep working in a client without the
   // shortcut service, while a client that has one gets an editable command in
-  // the Keyboard shortcuts dialog (Mod+Alt+D by default).
+  // the Keyboard shortcuts dialog (Alt+Shift+D by default).
   ctx.inject(["shortcuts"], (ctx) => {
     ctx.effect(
       () =>
@@ -81,9 +81,11 @@ export function apply(ctx) {
           label: () => t("shortcutOpen"),
           aliases: ["session changes", "changes", "diff"],
           defaults: {
-            "desktop:macos": { code: "KeyD", modifiers: ["primary", "alt"] },
-            "desktop:windows": { code: "KeyD", modifiers: ["primary", "alt"] },
-            "desktop:linux": { code: "KeyD", modifiers: ["primary", "alt"] },
+            "desktop:macos": { code: "KeyD", modifiers: ["alt", "shift"] },
+            "desktop:windows": { code: "KeyD", modifiers: ["alt", "shift"] },
+            "desktop:linux": { code: "KeyD", modifiers: ["alt", "shift"] },
+            // The Web shortcut service only admits Mod+Shift / Mod+Alt chords, so the
+            // browser build keeps Mod+Alt+D; Alt+Shift+D is the Desktop default.
             "web:macos": { code: "KeyD", modifiers: ["primary", "alt"] },
             "web:windows": { code: "KeyD", modifiers: ["primary", "alt"] },
           },

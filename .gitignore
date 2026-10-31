@@ -4,7 +4,7 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# The plugin's own pre-image store, when this directory is used as a workspace.
+# Legacy pre-image store: an older version kept it inside the workspace; it now lives under $DSH_HOME.
 .dsh/
 
 # Local scratch: bundle baselines and ad-hoc probes.
